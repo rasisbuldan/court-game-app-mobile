@@ -7,8 +7,23 @@ const workspaceRoot = path.resolve(projectRoot, '../..');
 
 const config = getDefaultConfig(projectRoot);
 
-// Watch all files within the monorepo
+// WSL2 fix: Disable file watching issues
+config.resetCache = true;
 config.watchFolders = [workspaceRoot];
+
+// WSL2 fix: Use polling for file changes
+config.server = {
+  ...config.server,
+  enhanceMiddleware: (middleware) => {
+    return (req, res, next) => {
+      // Disable caching for WSL2
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return middleware(req, res, next);
+    };
+  },
+};
+
+// Don't duplicate watchFolders - already set above
 
 // Let Metro know where to resolve packages and in what order
 config.resolver.nodeModulesPaths = [
