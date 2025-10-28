@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
-import { createAsyncStoragePersister } from '@tanstack/react-query-persist-client';
+import type { Persister, PersistedClient } from '@tanstack/react-query-persist-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export const queryClient = new QueryClient({
@@ -18,8 +18,33 @@ export const queryClient = new QueryClient({
   },
 });
 
-export const asyncStoragePersister = createAsyncStoragePersister({
-  storage: AsyncStorage,
-  key: 'COURTSTER_QUERY_CACHE',
-  throttleTime: 1000,
-});
+const STORAGE_KEY = 'COURTSTER_QUERY_CACHE';
+
+export const asyncStoragePersister: Persister = {
+  persistClient: async (client: PersistedClient) => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(client));
+    } catch (error) {
+      console.error('Failed to persist query client:', error);
+    }
+  },
+  restoreClient: async () => {
+    try {
+      const cached = await AsyncStorage.getItem(STORAGE_KEY);
+      if (cached) {
+        return JSON.parse(cached) as PersistedClient;
+      }
+      return undefined;
+    } catch (error) {
+      console.error('Failed to restore query client:', error);
+      return undefined;
+    }
+  },
+  removeClient: async () => {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+      console.error('Failed to remove query client:', error);
+    }
+  },
+};

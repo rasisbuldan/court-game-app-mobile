@@ -17,6 +17,7 @@ interface RoundsTabProps {
   players: Player[];
   algorithm: MexicanoAlgorithm | null;
   sessionId: string;
+  onRoundChange: (index: number) => void;
 }
 
 export function RoundsTab({
@@ -28,11 +29,10 @@ export function RoundsTab({
   players,
   algorithm,
   sessionId,
+  onRoundChange,
 }: RoundsTabProps) {
   const queryClient = useQueryClient();
   const { isOnline } = useNetworkStatus();
-  const [editingMatch, setEditingMatch] = useState<number | null>(null);
-  const [scores, setScores] = useState<{ team1: string; team2: string }>({ team1: '', team2: '' });
 
   // Generate next round mutation
   const generateRoundMutation = useMutation({
@@ -71,12 +71,13 @@ export function RoundsTab({
         });
       }
 
-      return newRound;
+      return { newRound, roundIndex: updatedRounds.length - 1 };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
       queryClient.invalidateQueries({ queryKey: ['players', sessionId] });
       queryClient.invalidateQueries({ queryKey: ['eventHistory', sessionId] });
+      onRoundChange(data.roundIndex);
       Toast.show({
         type: 'success',
         text1: 'Round Generated',
@@ -91,6 +92,58 @@ export function RoundsTab({
       });
     },
   });
+
+  const handleNextRound = () => {
+    if (currentRoundIndex === allRounds.length - 1) {
+      // At last round, validate current round before generating new one
+      if (!currentRound) return;
+
+      // Check if all matches are scored
+      const allScored = currentRound.matches.every((match) => {
+        const team1HasScore = match.team1Score !== undefined &&
+                             match.team1Score !== null &&
+                             !isNaN(match.team1Score);
+        const team2HasScore = match.team2Score !== undefined &&
+                             match.team2Score !== null &&
+                             !isNaN(match.team2Score);
+
+        if (!team1HasScore || !team2HasScore) return false;
+
+        // Validate based on scoring mode
+        if (session.scoring_mode === "first_to") {
+          const maxScore = Math.max(match.team1Score, match.team2Score);
+          const minScore = Math.min(match.team1Score, match.team2Score);
+          return maxScore === session.points_per_match && minScore < session.points_per_match;
+        } else {
+          return match.team1Score + match.team2Score === session.points_per_match;
+        }
+      });
+
+      if (!allScored) {
+        const errorMessage = session.scoring_mode === "first_to"
+          ? `Please enter valid scores for all matches. One team must reach exactly ${session.points_per_match} games.`
+          : `Please enter valid scores for all matches. Each match must total ${session.points_per_match} ${session.scoring_mode === "total_games" ? "games" : "points"}.`;
+        Toast.show({
+          type: 'error',
+          text1: 'Incomplete Round',
+          text2: errorMessage,
+        });
+        return;
+      }
+
+      // All validation passed, generate new round
+      generateRoundMutation.mutate();
+    } else {
+      // Navigate to next round
+      onRoundChange(currentRoundIndex + 1);
+    }
+  };
+
+  const handlePreviousRound = () => {
+    if (currentRoundIndex > 0) {
+      onRoundChange(currentRoundIndex - 1);
+    }
+  };
 
   // Update score mutation
   const updateScoreMutation = useMutation({
@@ -154,8 +207,6 @@ export function RoundsTab({
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
       queryClient.invalidateQueries({ queryKey: ['players', sessionId] });
       queryClient.invalidateQueries({ queryKey: ['eventHistory', sessionId] });
-      setEditingMatch(null);
-      setScores({ team1: '', team2: '' });
       Toast.show({
         type: 'success',
         text1: 'Score Updated',
@@ -185,38 +236,6 @@ export function RoundsTab({
     await Promise.all(updatePromises);
   };
 
-  const handleSaveScore = (matchIndex: number) => {
-    const team1Score = parseInt(scores.team1);
-    const team2Score = parseInt(scores.team2);
-
-    if (isNaN(team1Score) || isNaN(team2Score)) {
-      Toast.show({
-        type: 'error',
-        text1: 'Invalid Score',
-        text2: 'Please enter valid numbers',
-      });
-      return;
-    }
-
-    if (team1Score + team2Score !== session.points_per_match) {
-      Toast.show({
-        type: 'error',
-        text1: 'Invalid Score',
-        text2: `Scores must add up to ${session.points_per_match}`,
-      });
-      return;
-    }
-
-    updateScoreMutation.mutate({ matchIndex, team1Score, team2Score });
-  };
-
-  const startEditingScore = (matchIndex: number, match: Match) => {
-    setEditingMatch(matchIndex);
-    setScores({
-      team1: match.team1Score?.toString() || '',
-      team2: match.team2Score?.toString() || '',
-    });
-  };
 
   if (!currentRound && allRounds.length === 0) {
     return (
@@ -252,161 +271,323 @@ export function RoundsTab({
   return (
     <View className="flex-1">
       {/* Round Navigation */}
-      <View className="bg-white border-b border-gray-200 px-6 py-3 flex-row items-center justify-between">
+      <View className="flex-row items-center justify-center gap-3 mb-4">
         <TouchableOpacity
-          className="p-2"
+          style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.4)',
+            borderWidth: 1,
+            borderColor: 'rgba(255, 255, 255, 0.4)',
+            borderRadius: 16,
+            padding: 10,
+            opacity: currentRoundIndex === 0 ? 0.5 : 1,
+          }}
           disabled={currentRoundIndex === 0}
-          onPress={() => {}}
+          onPress={handlePreviousRound}
         >
           <ChevronLeft
-            color={currentRoundIndex === 0 ? '#D1D5DB' : '#374151'}
-            size={24}
+            color="#374151"
+            size={20}
           />
         </TouchableOpacity>
-        <View className="items-center">
-          <Text className="text-lg font-bold text-gray-900">
-            Round {currentRound.number}
-          </Text>
-          <Text className="text-xs text-gray-600">
-            {currentRound.matches.length} {currentRound.matches.length === 1 ? 'match' : 'matches'}
+
+        <View style={{
+          backgroundColor: 'rgba(255, 255, 255, 0.4)',
+          borderWidth: 1,
+          borderColor: 'rgba(255, 255, 255, 0.4)',
+          borderRadius: 16,
+          paddingVertical: 10,
+          paddingHorizontal: 20,
+          width: 160,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827' }}>
+            Round {currentRound.number} of {allRounds.length}
           </Text>
         </View>
-        <TouchableOpacity className="p-2" disabled={currentRoundIndex === allRounds.length - 1}>
-          <ChevronRight
-            color={currentRoundIndex === allRounds.length - 1 ? '#D1D5DB' : '#374151'}
-            size={24}
-          />
+
+        <TouchableOpacity
+          style={{
+            backgroundColor: generateRoundMutation.isPending ? 'rgba(239, 68, 68, 0.4)' : 'rgba(255, 255, 255, 0.4)',
+            borderWidth: 1,
+            borderColor: generateRoundMutation.isPending ? 'rgba(239, 68, 68, 0.6)' : 'rgba(255, 255, 255, 0.4)',
+            borderRadius: 16,
+            padding: 10,
+          }}
+          disabled={generateRoundMutation.isPending}
+          onPress={handleNextRound}
+        >
+          {generateRoundMutation.isPending ? (
+            <ActivityIndicator size="small" color="#EF4444" />
+          ) : (
+            <ChevronRight
+              color="#374151"
+              size={20}
+            />
+          )}
         </TouchableOpacity>
       </View>
 
       <ScrollView
-        className="flex-1 px-6 py-4"
+        className="flex-1 px-4"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 16 }}
         keyboardShouldPersistTaps="handled"
       >
         {/* Matches */}
         {currentRound.matches.map((match, index) => (
-          <View key={index} className="bg-white rounded-lg p-4 mb-3 border border-gray-200">
-            <Text className="text-xs font-medium text-gray-500 mb-3">
+          <View
+            key={index}
+            style={{
+              backgroundColor: 'rgba(255, 255, 255, 0.5)',
+              borderWidth: 2,
+              borderColor: 'rgba(255, 255, 255, 0.7)',
+              borderRadius: 24,
+              padding: 16,
+              marginBottom: 16,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 20 },
+              shadowOpacity: 0.15,
+              shadowRadius: 40,
+              elevation: 8,
+            }}
+          >
+            {/* Court Header */}
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 16, textAlign: 'center' }}>
               COURT {match.court}
             </Text>
 
-            {/* Team 1 */}
-            <View className="flex-row items-center justify-between mb-2">
-              <View className="flex-1">
-                <Text className="text-sm font-medium text-gray-900">
+            {/* Teams Container - Horizontal Layout */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              {/* Team 1 */}
+              <View style={{
+                flex: 1,
+                backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.8)',
+                borderRadius: 16,
+                padding: 12,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.08,
+                shadowRadius: 12,
+                elevation: 3,
+              }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827', marginBottom: 4, textAlign: 'left' }}>
                   {match.team1[0].name}
                 </Text>
-                <Text className="text-sm text-gray-600">{match.team1[1].name}</Text>
-              </View>
-              {editingMatch === index ? (
-                <TextInput
-                  className="w-16 h-10 border border-gray-300 rounded-lg px-3 text-center text-lg font-bold"
-                  keyboardType="numeric"
-                  value={scores.team1}
-                  onChangeText={(text) => setScores({ ...scores, team1: text })}
-                  maxLength={2}
-                />
-              ) : (
-                <Text className="text-2xl font-bold text-gray-900 w-12 text-center">
-                  {match.team1Score ?? '-'}
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827', textAlign: 'left' }}>
+                  {match.team1[1].name}
                 </Text>
-              )}
-            </View>
+              </View>
 
-            {/* VS */}
-            <View className="border-t border-gray-200 my-2" />
+              {/* VS Circle */}
+              <View style={{
+                width: 36,
+                height: 36,
+                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                borderWidth: 2,
+                borderColor: 'rgba(255, 255, 255, 0.9)',
+                borderRadius: 18,
+                alignItems: 'center',
+                justifyContent: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.05,
+                shadowRadius: 4,
+                elevation: 2,
+              }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#F43F5E' }}>VS</Text>
+              </View>
 
-            {/* Team 2 */}
-            <View className="flex-row items-center justify-between">
-              <View className="flex-1">
-                <Text className="text-sm font-medium text-gray-900">
+              {/* Team 2 */}
+              <View style={{
+                flex: 1,
+                backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.8)',
+                borderRadius: 16,
+                padding: 12,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.08,
+                shadowRadius: 12,
+                elevation: 3,
+              }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827', marginBottom: 4, textAlign: 'right' }}>
                   {match.team2[0].name}
                 </Text>
-                <Text className="text-sm text-gray-600">{match.team2[1].name}</Text>
-              </View>
-              {editingMatch === index ? (
-                <TextInput
-                  className="w-16 h-10 border border-gray-300 rounded-lg px-3 text-center text-lg font-bold"
-                  keyboardType="numeric"
-                  value={scores.team2}
-                  onChangeText={(text) => setScores({ ...scores, team2: text })}
-                  maxLength={2}
-                />
-              ) : (
-                <Text className="text-2xl font-bold text-gray-900 w-12 text-center">
-                  {match.team2Score ?? '-'}
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827', textAlign: 'right' }}>
+                  {match.team2[1].name}
                 </Text>
-              )}
+              </View>
             </View>
 
-            {/* Action Buttons */}
-            <View className="mt-3 pt-3 border-t border-gray-200">
-              {editingMatch === index ? (
-                <View className="flex-row gap-2">
-                  <TouchableOpacity
-                    className="flex-1 bg-primary-500 rounded-lg py-2"
-                    onPress={() => handleSaveScore(index)}
-                    disabled={updateScoreMutation.isPending}
-                  >
-                    {updateScoreMutation.isPending ? (
-                      <ActivityIndicator color="white" size="small" />
-                    ) : (
-                      <Text className="text-white font-semibold text-center">Save</Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    className="flex-1 bg-gray-200 rounded-lg py-2"
-                    onPress={() => {
-                      setEditingMatch(null);
-                      setScores({ team1: '', team2: '' });
-                    }}
-                  >
-                    <Text className="text-gray-700 font-semibold text-center">Cancel</Text>
-                  </TouchableOpacity>
+            {/* Scores Section */}
+            <View style={{
+              backgroundColor: 'rgba(255, 255, 255, 0.6)',
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0.8)',
+              borderRadius: 16,
+              padding: 12,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.08,
+              shadowRadius: 12,
+              elevation: 3,
+            }}>
+              {/* Match Status Badge */}
+              {match.team1Score !== undefined && match.team2Score !== undefined && (
+                <View style={{ alignItems: 'center', marginBottom: 8 }}>
+                  <View style={{
+                    backgroundColor: 'rgba(34, 197, 94, 0.25)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.4)',
+                    borderRadius: 12,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                  }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#15803D' }}>
+                      Complete
+                    </Text>
+                  </View>
                 </View>
-              ) : (
-                <TouchableOpacity
-                  className="bg-gray-100 rounded-lg py-2"
-                  onPress={() => startEditingScore(index, match)}
-                >
-                  <Text className="text-gray-700 font-semibold text-center">
-                    {match.team1Score !== undefined ? 'Edit Score' : 'Enter Score'}
-                  </Text>
-                </TouchableOpacity>
               )}
+              {(match.team1Score === undefined || match.team2Score === undefined) && (
+                <View style={{ alignItems: 'center', marginBottom: 8 }}>
+                  <View style={{
+                    backgroundColor: 'rgba(234, 179, 8, 0.25)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.4)',
+                    borderRadius: 12,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                  }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#A16207' }}>
+                      In Progress
+                    </Text>
+                  </View>
+                </View>
+              )}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+                <TextInput
+                  style={{
+                    width: 64,
+                    height: 40,
+                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                    borderRadius: 16,
+                    textAlign: 'center',
+                    fontSize: 16,
+                    fontWeight: '700',
+                    color: '#111827',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 4,
+                    elevation: 2,
+                  }}
+                  keyboardType="numeric"
+                  value={match.team1Score?.toString() || ''}
+                  onChangeText={(text) => {
+                    const team1Score = parseInt(text) || 0;
+                    const team2Score = session.points_per_match - team1Score;
+                    if (team2Score >= 0 && team2Score <= session.points_per_match) {
+                      updateScoreMutation.mutate({ matchIndex: index, team1Score, team2Score });
+                    }
+                  }}
+                  maxLength={2}
+                  placeholder="-"
+                  placeholderTextColor="#9CA3AF"
+                />
+                <Text style={{ fontSize: 20, fontWeight: '700', color: '#9CA3AF' }}>-</Text>
+                <TextInput
+                  style={{
+                    width: 64,
+                    height: 40,
+                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                    borderRadius: 16,
+                    textAlign: 'center',
+                    fontSize: 16,
+                    fontWeight: '700',
+                    color: '#111827',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 4,
+                    elevation: 2,
+                  }}
+                  keyboardType="numeric"
+                  value={match.team2Score?.toString() || ''}
+                  onChangeText={(text) => {
+                    const team2Score = parseInt(text) || 0;
+                    const team1Score = session.points_per_match - team2Score;
+                    if (team1Score >= 0 && team1Score <= session.points_per_match) {
+                      updateScoreMutation.mutate({ matchIndex: index, team1Score, team2Score });
+                    }
+                  }}
+                  maxLength={2}
+                  placeholder="-"
+                  placeholderTextColor="#9CA3AF"
+                />
+              </View>
             </View>
           </View>
         ))}
 
         {/* Sitting Players */}
         {currentRound.sittingPlayers.length > 0 && (
-          <View className="bg-yellow-50 rounded-lg p-4 mb-3 border border-yellow-200">
-            <Text className="text-sm font-medium text-yellow-900 mb-2">Sitting Out</Text>
-            {currentRound.sittingPlayers.map((player, index) => (
-              <Text key={index} className="text-sm text-yellow-800">
-                • {player.name}
+          <View style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.08)',
+            borderWidth: 1,
+            borderColor: 'rgba(229, 231, 235, 0.3)',
+            borderRadius: 24,
+            padding: 16,
+            marginBottom: 16,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.05,
+            shadowRadius: 4,
+            elevation: 2,
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827' }}>
+                Sitting Out
               </Text>
-            ))}
+              <TouchableOpacity
+                style={{
+                  backgroundColor: 'rgba(55, 65, 81, 0.85)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(75, 85, 99, 0.5)',
+                  borderRadius: 16,
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 4,
+                  elevation: 2,
+                }}
+                onPress={() => {
+                  Toast.show({
+                    type: 'info',
+                    text1: 'Coming Soon',
+                    text2: 'Switch player functionality will be available soon',
+                  });
+                }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>
+                  Switch Player
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 14, fontWeight: '500', color: '#374151', lineHeight: 22 }}>
+              {currentRound.sittingPlayers.map((player) => player.name).join(', ')}
+            </Text>
           </View>
-        )}
-
-        {/* Generate Next Round */}
-        {currentRoundIndex === allRounds.length - 1 && (
-          <TouchableOpacity
-            className="bg-primary-500 rounded-lg py-3 mb-6"
-            onPress={() => generateRoundMutation.mutate()}
-            disabled={generateRoundMutation.isPending || !hasMatchesStarted}
-          >
-            {generateRoundMutation.isPending ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text className="text-white font-semibold text-center">
-                Generate Next Round
-              </Text>
-            )}
-          </TouchableOpacity>
         )}
       </ScrollView>
     </View>

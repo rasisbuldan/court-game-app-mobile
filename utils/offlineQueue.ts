@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '../config/supabase';
 
 export type QueuedOperation = {
@@ -17,6 +18,8 @@ class OfflineQueueManager {
   private queue: QueuedOperation[] = [];
   private isProcessing = false;
   private listeners: Set<() => void> = new Set();
+  private syncListeners: Set<(status: 'syncing' | 'synced' | 'failed') => void> = new Set();
+  private autoSyncUnsubscribe?: () => void;
 
   async initialize() {
     try {
@@ -26,6 +29,45 @@ class OfflineQueueManager {
       }
     } catch (error) {
       console.error('Failed to load offline queue:', error);
+    }
+
+    // Setup auto-sync on network reconnect
+    this.setupAutoSync();
+  }
+
+  private setupAutoSync() {
+    this.autoSyncUnsubscribe = NetInfo.addEventListener((state) => {
+      const isOnline = state.isConnected && state.isInternetReachable !== false;
+
+      if (isOnline && this.queue.length > 0 && !this.isProcessing) {
+        console.log('Network reconnected, syncing offline queue...');
+        this.processQueueWithNotification();
+      }
+    });
+  }
+
+  private async processQueueWithNotification() {
+    if (this.queue.length === 0) return;
+
+    this.notifySyncListeners('syncing');
+
+    try {
+      const result = await this.processQueue();
+
+      if (result.failed === 0) {
+        this.notifySyncListeners('synced');
+      } else {
+        this.notifySyncListeners('failed');
+      }
+    } catch (error) {
+      console.error('Auto-sync failed:', error);
+      this.notifySyncListeners('failed');
+    }
+  }
+
+  cleanup() {
+    if (this.autoSyncUnsubscribe) {
+      this.autoSyncUnsubscribe();
     }
   }
 
@@ -210,8 +252,17 @@ class OfflineQueueManager {
     return () => this.listeners.delete(callback);
   }
 
+  onSyncStatusChange(callback: (status: 'syncing' | 'synced' | 'failed') => void) {
+    this.syncListeners.add(callback);
+    return () => this.syncListeners.delete(callback);
+  }
+
   private notifyListeners() {
     this.listeners.forEach((callback) => callback());
+  }
+
+  private notifySyncListeners(status: 'syncing' | 'synced' | 'failed') {
+    this.syncListeners.forEach((callback) => callback(status));
   }
 
   async clearQueue() {

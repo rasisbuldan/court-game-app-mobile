@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Share2, MoreVertical, Play, Trophy, BarChart3, History } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 import { supabase } from '../../../config/supabase';
 import { MexicanoAlgorithm, Player, Round, Match } from '@courtster/shared';
 import { useAuth } from '../../../hooks/useAuth';
@@ -16,6 +17,7 @@ import { StatisticsTab } from '../../../components/session/StatisticsTab';
 import { EventHistoryTab } from '../../../components/session/EventHistoryTab';
 import { SyncIndicator } from '../../../components/ui/SyncIndicator';
 import { SessionSettingsModal } from '../../../components/ui/SessionSettingsModal';
+import { OfflineIndicator } from '../../../components/ui/OfflineIndicator';
 import { useTheme, getThemeColors } from '../../../contexts/ThemeContext';
 
 type Tab = 'rounds' | 'leaderboard' | 'statistics' | 'history';
@@ -36,6 +38,7 @@ export default function SessionScreen() {
   const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
   const [algorithm, setAlgorithm] = useState<MexicanoAlgorithm | null>(null);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   // Fetch session data
   const { data: session, isLoading: sessionLoading } = useQuery({
@@ -297,53 +300,125 @@ export default function SessionScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      className="flex-1"
-      style={{ backgroundColor: reduceAnimation ? colors.background : colors.backgroundSecondary }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-    >
-      {/* Header */}
-      <View
-        className="px-6 pb-4"
-        style={{
-          backgroundColor: colors.card,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-          paddingTop: Math.max(insets.top, 16) + 16,
-        }}
-      >
-        <View className="flex-row items-center justify-between">
+    <View className="flex-1 bg-gray-50">
+      {/* Offline Indicator */}
+      <OfflineIndicator />
+
+      {/* Background Bubbles */}
+      <View className="absolute inset-0 overflow-hidden pointer-events-none">
+        {/* Top left - Rose */}
+        <View className="absolute rounded-full" style={{ width: 380, height: 380, top: -100, left: -120, backgroundColor: '#FCE4EC', opacity: 0.3 }} />
+        {/* Top right - Slate blue */}
+        <View className="absolute rounded-full" style={{ width: 320, height: 320, top: 60, right: -100, backgroundColor: '#E2E8F0', opacity: 0.35 }} />
+        {/* Middle left - Soft purple */}
+        <View className="absolute rounded-full" style={{ width: 280, height: 280, top: 400, left: -80, backgroundColor: '#F3E8FF', opacity: 0.25 }} />
+        {/* Middle right - Light peach */}
+        <View className="absolute rounded-full" style={{ width: 240, height: 240, top: 500, right: -60, backgroundColor: '#FED7AA', opacity: 0.2 }} />
+        {/* Bottom left - Light cyan */}
+        <View className="absolute rounded-full" style={{ width: 300, height: 300, bottom: -100, left: -80, backgroundColor: '#CFFAFE', opacity: 0.3 }} />
+        {/* Bottom right - Soft grey */}
+        <View className="absolute rounded-full" style={{ width: 260, height: 260, bottom: 150, right: -70, backgroundColor: '#F5F5F5', opacity: 0.35 }} />
+      </View>
+
+      {/* iOS 18 Style Header */}
+      <View style={{
+        paddingTop: Platform.OS === 'ios' ? Math.max(insets.top, 16) + 16 : 20,
+        paddingBottom: 16,
+        paddingHorizontal: 16,
+        ...(Platform.OS === 'ios' && {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+        }),
+      }}>
+        {Platform.OS === 'ios' ? (
+          <>
+            <BlurView intensity={80} tint="light" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 255, 255, 0.7)' }} />
+          </>
+        ) : (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#FFFFFF' }} />
+        )}
+
+        <View className="flex-row items-center justify-between" style={{ position: 'relative' }}>
           <View className="flex-row items-center flex-1">
             <TouchableOpacity onPress={() => router.back()} className="mr-3">
-              <ChevronLeft color={colors.text} size={24} />
+              <ChevronLeft color="#111827" size={28} strokeWidth={2} />
             </TouchableOpacity>
             <View className="flex-1">
-              <Text style={{ color: colors.text, fontSize: 20 * fontScale }} className="font-bold" numberOfLines={1}>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: '#111827' }} numberOfLines={1}>
                 {session.name}
               </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 12 * fontScale }} className="mt-0.5">
-                {session.sport} • {session.type} • Round {currentRoundIndex + 1}/{allRounds.length || 1}
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#6B7280', marginTop: 2 }}>
+                {session.sport?.charAt(0).toUpperCase()}{session.sport?.slice(1)} • {session.type?.charAt(0).toUpperCase()}{session.type?.slice(1)} • R{currentRoundIndex + 1}/{allRounds.length || 1}
               </Text>
             </View>
           </View>
-          <TouchableOpacity
-            className="p-2"
-            onPress={() => setSettingsModalVisible(true)}
-            accessible
-            accessibilityRole="button"
-            accessibilityLabel="Open session settings"
-          >
-            <MoreVertical color={colors.textSecondary} size={20} />
-          </TouchableOpacity>
+
+          {/* Dropdown Menu Button */}
+          <View style={{ position: 'relative' }}>
+            <TouchableOpacity
+              onPress={() => setDropdownOpen(!dropdownOpen)}
+              style={{
+                width: 36,
+                height: 36,
+                backgroundColor: 'rgba(255, 255, 255, 0.4)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.4)',
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <MoreVertical color="#4B5563" size={18} />
+            </TouchableOpacity>
+
+            {/* Dropdown Menu */}
+            {dropdownOpen && (
+              <View style={{
+                position: 'absolute',
+                right: 0,
+                top: 45,
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.95)',
+                borderRadius: 16,
+                width: 200,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 12,
+                elevation: 8,
+                overflow: 'hidden',
+                zIndex: 50,
+              }}>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(229, 231, 235, 0.5)' }}
+                  onPress={() => { setDropdownOpen(false); Toast.show({ type: 'info', text1: 'Coming soon' }); }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#374151' }}>Share Session</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(229, 231, 235, 0.5)' }}
+                  onPress={() => { setDropdownOpen(false); Toast.show({ type: 'info', text1: 'Coming soon' }); }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#374151' }}>Session Settings</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 16, paddingVertical: 14 }}
+                  onPress={() => { setDropdownOpen(false); Toast.show({ type: 'info', text1: 'Coming soon' }); }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#EF4444' }}>End Session</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
       </View>
 
-      {/* Sync Indicator */}
-      <SyncIndicator />
-
       {/* Tab Content */}
-      <View className="flex-1 pb-24">
+      <ScrollView className="flex-1 px-4 pt-4" contentContainerStyle={{ paddingBottom: 120 }}>
         {tab === 'rounds' && (
           <RoundsTab
             currentRound={currentRound}
@@ -354,105 +429,89 @@ export default function SessionScreen() {
             players={players}
             algorithm={algorithm}
             sessionId={id}
+            onRoundChange={setCurrentRoundIndex}
           />
         )}
-        {tab === 'leaderboard' && (
-          <LeaderboardTab
-            players={sortedPlayers}
-            sortBy={sortBy}
-            onSortChange={setSortBy}
-            session={session}
-            sessionId={id}
-            allRounds={allRounds}
-          />
-        )}
-        {tab === 'statistics' && (
-          <StatisticsTab players={players} allRounds={allRounds} />
-        )}
-        {tab === 'history' && (
-          <EventHistoryTab eventHistory={eventHistory} />
-        )}
-      </View>
+      </ScrollView>
 
-      {/* Floating Bottom Tab Bar */}
-      <View
-        className="absolute bottom-0 left-0 right-0 px-4"
-        style={{
-          paddingBottom: Math.max(insets.bottom, 8) + 8,
-          elevation: 8,
-        }}
-      >
-        <View
-          className="rounded-3xl px-2 py-2.5"
-          style={{
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-            shadowColor: isDark ? '#000' : '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: isDark ? 0.3 : 0.1,
-            shadowRadius: 8,
-          }}
-        >
-          <View className="flex-row items-center justify-around">
-            {(['rounds', 'leaderboard', 'statistics', 'history'] as Tab[]).map((t) => {
-              const isActive = tab === t;
-              const iconColor = isActive ? '#FFFFFF' : colors.textSecondary;
-              const iconSize = 20;
+      {/* Tab Bar - Full Width at Bottom (Navigation Bar Style) */}
+      <View style={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'transparent',
+        borderTopWidth: 0,
+        paddingBottom: Platform.OS === 'ios' ? insets.bottom + 4 : 20,
+        paddingTop: 4,
+        elevation: 0,
+        ...(Platform.OS === 'ios' && {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -1 },
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+        }),
+      }}>
+        {Platform.OS === 'ios' ? (
+          <>
+            <BlurView intensity={80} tint="light" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden' }} />
+            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255, 255, 255, 0.7)' }} />
+          </>
+        ) : (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#FFFFFF' }} />
+        )}
 
-              let Icon;
-              switch (t) {
-                case 'rounds':
-                  Icon = Play;
-                  break;
-                case 'leaderboard':
-                  Icon = Trophy;
-                  break;
-                case 'statistics':
-                  Icon = BarChart3;
-                  break;
-                case 'history':
-                  Icon = History;
-                  break;
-              }
+        <View style={{
+          flexDirection: 'row',
+          flex: 1,
+          paddingHorizontal: 8,
+        }}>
+          {(['rounds', 'leaderboard', 'statistics', 'history'] as Tab[]).map((t) => {
+            const isActive = tab === t;
+            let Icon;
+            switch (t) {
+              case 'rounds': Icon = Play; break;
+              case 'leaderboard': Icon = Trophy; break;
+              case 'statistics': Icon = BarChart3; break;
+              case 'history': Icon = History; break;
+            }
 
-              return (
-                <TouchableOpacity
-                  key={t}
-                  onPress={() => setTab(t)}
-                  className="flex-1 items-center justify-center py-2.5 px-2 rounded-2xl"
-                  style={{
-                    backgroundColor: isActive ? colors.primary : 'transparent',
-                  }}
-                  activeOpacity={0.7}
-                  accessible={true}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: isActive }}
-                  accessibilityLabel={`${t} tab`}
-                >
-                  <Icon color={iconColor} size={iconSize} strokeWidth={2.5} />
-                  <Text
-                    style={{
-                      color: isActive ? '#FFFFFF' : colors.textSecondary,
-                      fontSize: 12 * fontScale,
-                    }}
-                    className="font-semibold capitalize mt-1"
-                    numberOfLines={1}
-                  >
-                    {t === 'leaderboard' ? 'Board' : t}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+            return (
+              <TouchableOpacity
+                key={t}
+                onPress={() => {
+                  if (t !== 'rounds') {
+                    Toast.show({ type: 'info', text1: 'Coming Soon', text2: `${t.charAt(0).toUpperCase()}${t.slice(1)} tab will be available soon!` });
+                  } else {
+                    setTab(t);
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingTop: 8,
+                }}
+              >
+                <Icon
+                  color={isActive ? '#EF4444' : '#6B7280'}
+                  size={24}
+                  strokeWidth={1.5}
+                />
+                <Text style={{
+                  fontSize: 11,
+                  fontWeight: '600',
+                  color: isActive ? '#EF4444' : '#6B7280',
+                  marginTop: 4,
+                  paddingBottom: 4,
+                }}>
+                  {t === 'leaderboard' ? 'Board' : t.charAt(0).toUpperCase() + t.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
-
-      {/* Session Settings Modal */}
-      <SessionSettingsModal
-        visible={settingsModalVisible}
-        onClose={() => setSettingsModalVisible(false)}
-      />
-    </KeyboardAvoidingView>
+    </View>
   );
 }

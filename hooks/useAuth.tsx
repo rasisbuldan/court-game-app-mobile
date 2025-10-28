@@ -47,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (loading) return;
 
     const inAuthGroup = segments[0] === '(auth)';
+    const inTabsGroup = segments[0] === '(tabs)';
 
     if (!user && !inAuthGroup) {
       // Redirect to login if not authenticated and not in auth screens
@@ -54,8 +55,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else if (user && inAuthGroup) {
       // Redirect to home if authenticated and in auth screens
       router.replace('/(tabs)/home');
+    } else if (user && !inTabsGroup && !inAuthGroup) {
+      // If user is authenticated but not in tabs or auth (e.g., at index), go to home
+      router.replace('/(tabs)/home');
     }
-  }, [user, segments, loading]);
+  }, [user, segments, loading, router]);
 
   const signIn = async (email: string, password: string) => {
     try {

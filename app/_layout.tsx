@@ -1,7 +1,8 @@
 import '../global.css';
 import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
-import { QueryClientProvider, PersistQueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
@@ -25,16 +26,9 @@ export default function RootLayout() {
                   contentStyle: { backgroundColor: '#F3F4F6' },
                 }}
               >
+                <Stack.Screen name="index" />
                 <Stack.Screen name="(auth)" />
                 <Stack.Screen name="(tabs)" />
-                <Stack.Screen
-                  name="create-session"
-                  options={{
-                    presentation: 'modal',
-                    headerShown: true,
-                    headerTitle: 'Create Tournament',
-                  }}
-                />
               </Stack>
               <Toast />
             </AuthProvider>

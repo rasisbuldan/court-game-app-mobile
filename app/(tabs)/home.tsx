@@ -8,6 +8,7 @@ import {
   Calendar,
   Search,
   ChevronDown,
+  ChevronRight,
   SortAsc,
   Filter,
   X,
@@ -19,13 +20,45 @@ import { useAuth } from '../../hooks/useAuth';
 import { useState, useRef, useEffect } from 'react';
 import Toast from 'react-native-toast-message';
 
-// Sport Icons (simplified for React Native)
+// Sport Icons - Racket SVG (45 degrees orientation)
 const PadelIcon = ({ color = '#EA580C', size = 16 }: { color?: string; size?: number }) => (
-  <View style={{ width: size, height: size, borderWidth: 1, borderColor: color, borderRadius: 2 }} />
+  <View style={{ width: size, height: size, transform: [{ rotate: '45deg' }] }}>
+    <View style={{
+      width: size * 0.6,
+      height: size * 0.8,
+      borderWidth: 1.5,
+      borderColor: color,
+      borderRadius: 3,
+      marginLeft: size * 0.2,
+    }} />
+    <View style={{
+      width: 1.5,
+      height: size * 0.4,
+      backgroundColor: color,
+      marginLeft: size * 0.5 - 0.75,
+      marginTop: -2,
+    }} />
+  </View>
 );
 
 const TennisIcon = ({ color = '#16A34A', size = 16 }: { color?: string; size?: number }) => (
-  <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 1, borderColor: color }} />
+  <View style={{ width: size, height: size, transform: [{ rotate: '45deg' }] }}>
+    <View style={{
+      width: size * 0.6,
+      height: size * 0.6,
+      borderWidth: 1.5,
+      borderColor: color,
+      borderRadius: size * 0.3,
+      marginLeft: size * 0.2,
+    }} />
+    <View style={{
+      width: 1.5,
+      height: size * 0.5,
+      backgroundColor: color,
+      marginLeft: size * 0.5 - 0.75,
+      marginTop: -2,
+    }} />
+  </View>
 );
 
 interface GameSession {
@@ -50,7 +83,6 @@ export default function HomeScreen() {
   const queryClient = useQueryClient();
 
   // State
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sportFilter, setSportFilter] = useState<string>('all');
@@ -63,6 +95,8 @@ export default function HomeScreen() {
   const [dateFilter, setDateFilter] = useState('');
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'cards' | 'compact'>('cards');
+  const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
 
   // Fetch sessions
   const {
@@ -126,8 +160,9 @@ export default function HomeScreen() {
   });
 
   // Helper functions
-  const getSessionStatus = (session: GameSession) => {
+  const getSessionStatus = (session: GameSession): 'completed' | 'active' | 'cancelled' | 'setup' => {
     if (session.status === 'completed') return 'completed';
+    if (session.status === 'cancelled') return 'cancelled';
     if (session.current_round > 0) return 'active';
     return 'setup';
   };
@@ -143,12 +178,12 @@ export default function HomeScreen() {
     const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
     const day = date.getDate();
     const month = date.toLocaleDateString('en-US', { month: 'short' });
-    const year = date.getFullYear();
 
-    const time = timeString || '19:00';
+    // Remove seconds from time (only show HH:MM)
+    const time = timeString ? timeString.substring(0, 5) : '19:00';
     const duration = durationHours || 2;
 
-    return `${dayName}, ${day} ${month} ${year} - ${time} - ${duration} ${
+    return `${time} • ${dayName}, ${day} ${month} • ${duration} ${
       duration === 1 ? 'hour' : 'hours'
     }`;
   };
@@ -225,80 +260,251 @@ export default function HomeScreen() {
     const playerCount = getPlayerCount(item);
     const sport = item.sport || 'padel';
 
+    // Compact mode rendering
+    if (viewMode === 'compact') {
+      return (
+        <View style={{
+          backgroundColor: 'rgba(255, 255, 255, 0.4)',
+          borderWidth: 1,
+          borderColor: 'rgba(255, 255, 255, 0.6)',
+          borderRadius: 16,
+          padding: 12,
+          marginBottom: 12,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 12,
+          elevation: 3,
+          position: 'relative',
+        }}>
+          {/* Row 1: Name */}
+          <View className="mb-2">
+            <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>
+              {item.name}
+            </Text>
+          </View>
+
+          {/* Row 2: Sport - Type - Courts */}
+          <View className="flex-row items-center gap-2 mb-2">
+            <View className="flex-row items-center gap-1.5">
+              {sport === 'padel' ? (
+                <PadelIcon color="#EA580C" size={14} />
+              ) : (
+                <TennisIcon color="#16A34A" size={14} />
+              )}
+              <Text style={{ fontSize: 12, fontWeight: '500', color: '#4B5563' }}>
+                {sport.charAt(0).toUpperCase() + sport.slice(1)}
+              </Text>
+            </View>
+            <Text style={{ fontSize: 12, color: '#9CA3AF' }}>-</Text>
+            <Text style={{ fontSize: 12, fontWeight: '500', color: '#4B5563' }}>
+              {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
+            </Text>
+            <Text style={{ fontSize: 12, color: '#9CA3AF' }}>-</Text>
+            <Text style={{ fontSize: 12, fontWeight: '500', color: '#4B5563' }}>
+              {item.courts} {item.courts === 1 ? 'Court' : 'Courts'}
+            </Text>
+          </View>
+
+          {/* Row 3: Date and Time */}
+          <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center gap-1.5 flex-1">
+              <Calendar color="#6B7280" size={11} />
+              <Text style={{ fontSize: 11, color: '#6B7280' }}>
+                {formatGameDateTime(item.game_date, item.game_time, item.duration_hours)}
+              </Text>
+            </View>
+
+            {/* Bottom Right: Triple Dot + Open Button */}
+            <View className="flex-row items-center gap-2">
+              {/* Triple Dot Menu */}
+              <TouchableOpacity
+                style={{
+                  width: 36,
+                  height: 36,
+                  backgroundColor: 'rgba(255, 255, 255, 0.4)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 255, 255, 0.4)',
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onPress={() => setActiveDropdown(activeDropdown === item.id ? null : item.id)}
+              >
+                <MoreHorizontal color="#4B5563" size={18} />
+              </TouchableOpacity>
+
+              {/* Open Button - Red (2x Wider) */}
+              <TouchableOpacity
+                style={{
+                  width: 96,
+                  height: 36,
+                  backgroundColor: '#EF4444',
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#EF4444',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 4,
+                  elevation: 3,
+                }}
+                onPress={() => router.push(`/(tabs)/session/${item.id}`)}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>
+                  Open
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Dropdown Menu */}
+          {activeDropdown === item.id && (
+            <View style={{
+              position: 'absolute',
+              right: 12,
+              bottom: 50,
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0.95)',
+              borderRadius: 16,
+              width: 200,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.15,
+              shadowRadius: 12,
+              elevation: 8,
+              overflow: 'hidden',
+              zIndex: 50,
+            }}>
+              {currentStatus !== 'completed' && (
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    borderBottomWidth: 1,
+                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                  }}
+                  onPress={() => handleMarkCompleted(item.id)}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#10B981' }}>
+                    Mark as Completed
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                }}
+                onPress={() => handleDelete(item.id)}
+              >
+                <Text style={{ fontSize: 15, fontWeight: '500', color: '#EF4444' }}>
+                  Delete Session
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    // Cards mode rendering (original)
     return (
-      <View className="bg-white/20 backdrop-blur-xl border border-white/50 rounded-3xl p-6 mb-6 shadow-xl">
+      <View style={{
+        backgroundColor: 'rgba(255, 255, 255, 0.4)',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.6)',
+        borderRadius: 24,
+        padding: 16,
+        marginBottom: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 3,
+      }}>
         {/* Header with Status */}
-        <View className="flex-row items-start justify-between mb-4">
+        <View className="flex-row items-start justify-between mb-3">
           <View className="flex-1">
-            <Text className="text-lg font-bold text-gray-900 mb-2">{item.name}</Text>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: '#111827', marginBottom: 6 }}>
+              {item.name}
+            </Text>
             <View className="flex-row items-center gap-2">
               {sport === 'padel' ? (
-                <PadelIcon color="#EA580C" size={16} />
+                <PadelIcon color="#EA580C" size={14} />
               ) : (
-                <TennisIcon color="#16A34A" size={16} />
+                <TennisIcon color="#16A34A" size={14} />
               )}
-              <Text className="text-sm font-medium text-gray-700">
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#4B5563' }}>
                 {sport.charAt(0).toUpperCase() + sport.slice(1)} -{' '}
                 {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
               </Text>
             </View>
           </View>
 
+          {/* Status Pill - iOS 18 Glassmorphism */}
           <View
-            className={`px-2.5 py-1 rounded-full ${
-              currentStatus === 'completed'
-                ? 'bg-green-500/10'
-                : currentStatus === 'active'
-                ? 'bg-red-500/10'
-                : 'bg-gray-500/10'
-            }`}
             style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 14,
+              backgroundColor:
+                currentStatus === 'completed' ? 'rgba(34, 197, 94, 0.15)' :
+                currentStatus === 'active' ? 'rgba(59, 130, 246, 0.15)' :
+                currentStatus === 'cancelled' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(107, 114, 128, 0.15)',
               borderWidth: 1,
               borderColor:
-                currentStatus === 'completed'
-                  ? 'rgba(34, 197, 94, 0.2)'
-                  : currentStatus === 'active'
-                  ? 'rgba(239, 68, 68, 0.2)'
-                  : 'rgba(107, 114, 128, 0.2)',
+                currentStatus === 'completed' ? 'rgba(34, 197, 94, 0.3)' :
+                currentStatus === 'active' ? 'rgba(59, 130, 246, 0.3)' :
+                currentStatus === 'cancelled' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255, 255, 255, 0.4)',
+              shadowColor:
+                currentStatus === 'completed' ? '#22C55E' :
+                currentStatus === 'active' ? '#3B82F6' :
+                currentStatus === 'cancelled' ? '#EF4444' : '#6B7280',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.1,
+              shadowRadius: 3,
+              elevation: 2,
             }}
           >
-            <Text
-              className={`text-xs font-semibold ${
-                currentStatus === 'completed'
-                  ? 'text-green-700'
-                  : currentStatus === 'active'
-                  ? 'text-red-700'
-                  : 'text-gray-700'
-              }`}
-            >
-              {currentStatus}
+            <Text style={{
+              fontSize: 11,
+              fontWeight: '600',
+              letterSpacing: 0.3,
+              color:
+                currentStatus === 'completed' ? '#15803D' :
+                currentStatus === 'active' ? '#1D4ED8' :
+                currentStatus === 'cancelled' ? '#DC2626' : '#374151',
+            }}>
+              {currentStatus.toUpperCase()}
             </Text>
           </View>
         </View>
 
         {/* Pills */}
-        <View className="flex-row flex-wrap gap-2 mb-4">
-          <View className="bg-blue-500/10 px-2.5 py-1 rounded-full flex-row items-center gap-1" style={{ borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.2)' }}>
-            <Users color="#1E40AF" size={12} />
-            <Text className="text-xs font-semibold text-blue-800">{playerCount} Players</Text>
+        <View className="flex-row flex-wrap gap-2 mb-3">
+          <View style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.25)' }}>
+            <Users color="#1E40AF" size={11} />
+            <Text style={{ fontSize: 11, fontWeight: '600', color: '#1E40AF' }}>{playerCount}</Text>
           </View>
-          <View className="bg-purple-500/10 px-2.5 py-1 rounded-full" style={{ borderWidth: 1, borderColor: 'rgba(168, 85, 247, 0.2)' }}>
-            <Text className="text-xs font-semibold text-purple-800">
+          <View style={{ backgroundColor: 'rgba(168, 85, 247, 0.12)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(168, 85, 247, 0.25)' }}>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: '#7C3AED' }}>
               {item.courts} {item.courts === 1 ? 'Court' : 'Courts'}
             </Text>
           </View>
-          <View className="bg-orange-500/10 px-2.5 py-1 rounded-full" style={{ borderWidth: 1, borderColor: 'rgba(249, 115, 22, 0.2)' }}>
-            <Text className="text-xs font-semibold text-orange-800">{item.points_per_match} Points</Text>
+          <View style={{ backgroundColor: 'rgba(249, 115, 22, 0.12)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(249, 115, 22, 0.25)' }}>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: '#C2410C' }}>{item.points_per_match} Pts</Text>
           </View>
-          <View className="bg-gray-500/10 px-2.5 py-1 rounded-full" style={{ borderWidth: 1, borderColor: 'rgba(107, 114, 128, 0.2)' }}>
-            <Text className="text-xs font-semibold text-gray-800">Round {item.current_round || 0}</Text>
+          <View style={{ backgroundColor: 'rgba(107, 114, 128, 0.12)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(107, 114, 128, 0.25)' }}>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: '#374151' }}>R{item.current_round || 0}</Text>
           </View>
         </View>
 
         {/* Date and Time */}
-        <View className="mb-6 flex-row items-center gap-2">
-          <Calendar color="#6B7280" size={16} />
-          <Text className="text-sm text-gray-600 flex-1">
+        <View className="mb-4 flex-row items-center gap-2">
+          <Calendar color="#6B7280" size={14} />
+          <Text style={{ fontSize: 13, color: '#6B7280', flex: 1 }}>
             {formatGameDateTime(item.game_date, item.game_time, item.duration_hours)}
           </Text>
         </View>
@@ -323,20 +529,48 @@ export default function HomeScreen() {
 
         {/* Dropdown Menu */}
         {activeDropdown === item.id && (
-          <View className="absolute right-6 bottom-20 bg-white/80 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl py-1 z-50" style={{ width: 176 }}>
+          <View style={{
+            position: 'absolute',
+            right: 24,
+            bottom: 80,
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            borderWidth: 1,
+            borderColor: 'rgba(255, 255, 255, 0.95)',
+            borderRadius: 16,
+            width: 200,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 8,
+            overflow: 'hidden',
+            zIndex: 50,
+          }}>
             {currentStatus !== 'completed' && (
               <TouchableOpacity
-                className="px-4 py-3 border-b border-gray-200"
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  borderBottomWidth: 1,
+                  borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                }}
                 onPress={() => handleMarkCompleted(item.id)}
               >
-                <Text className="text-sm text-green-600">Mark as Completed</Text>
+                <Text style={{ fontSize: 15, fontWeight: '500', color: '#10B981' }}>
+                  Mark as Completed
+                </Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity
-              className="px-4 py-3"
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+              }}
               onPress={() => handleDelete(item.id)}
             >
-              <Text className="text-sm text-red-600">Delete Session</Text>
+              <Text style={{ fontSize: 15, fontWeight: '500', color: '#EF4444' }}>
+                Delete Session
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -348,142 +582,421 @@ export default function HomeScreen() {
     <View className="flex-1 bg-gray-50">
       {/* Glassmorphic Background Blobs */}
       <View className="absolute inset-0 overflow-hidden pointer-events-none">
+        {/* Top left - Rose */}
         <View
-          className="absolute w-96 h-96 rounded-full opacity-30"
+          className="absolute rounded-full"
           style={{
-            top: 80,
-            left: -80,
+            width: 380,
+            height: 380,
+            top: -100,
+            left: -120,
             backgroundColor: '#FCE4EC',
-            filter: 'blur(60px)'
+            opacity: 0.3,
           }}
         />
+
+        {/* Top right - Slate blue */}
         <View
-          className="absolute w-80 h-80 rounded-full opacity-40"
+          className="absolute rounded-full"
           style={{
-            top: 160,
-            right: -80,
+            width: 320,
+            height: 320,
+            top: 60,
+            right: -100,
             backgroundColor: '#E2E8F0',
-            filter: 'blur(60px)'
+            opacity: 0.35,
           }}
         />
+
+        {/* Middle left - Soft purple */}
         <View
-          className="absolute w-72 h-72 rounded-full opacity-30"
+          className="absolute rounded-full"
           style={{
-            bottom: -80,
-            left: '33%',
-            backgroundColor: '#F5F5F5',
-            filter: 'blur(60px)'
+            width: 280,
+            height: 280,
+            top: 400,
+            left: -80,
+            backgroundColor: '#F3E8FF',
+            opacity: 0.25,
           }}
         />
-      </View>
 
-      {/* Header - Fixed with Glassmorphism */}
-      <View className="bg-white/20 backdrop-blur-xl border-b border-white/30 shadow-sm" style={{ paddingTop: 48, paddingBottom: 12, paddingHorizontal: 16 }}>
-        <View className="flex-row items-center justify-between">
-          <View className="flex-row items-center gap-2">
-            <View className="w-10 h-10 bg-gradient-to-br from-red-500 to-red-700 rounded-xl items-center justify-center shadow-md" style={{ backgroundColor: '#DC2626' }}>
-              <Trophy color="white" size={24} />
-            </View>
-            <View>
-              <Text className="text-lg font-bold text-gray-900">Courtster</Text>
-              <Text className="text-xs text-gray-700">Racquet Game Sessions</Text>
-            </View>
-          </View>
+        {/* Middle right - Light peach */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 240,
+            height: 240,
+            top: 500,
+            right: -60,
+            backgroundColor: '#FED7AA',
+            opacity: 0.2,
+          }}
+        />
 
-          <TouchableOpacity
-            className="bg-white/40 backdrop-blur-xl border border-white/40 p-2.5 rounded-2xl shadow-sm"
-            onPress={() => setSettingsOpen(!settingsOpen)}
-          >
-            <Settings color="#374151" size={20} />
-          </TouchableOpacity>
-        </View>
+        {/* Center - Subtle grey */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 200,
+            height: 200,
+            top: 300,
+            left: 100,
+            backgroundColor: '#F5F5F5',
+            opacity: 0.3,
+          }}
+        />
 
-        {/* Settings Dropdown */}
-        {settingsOpen && (
-          <View className="absolute right-4 top-24 bg-white/80 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl py-1 z-50" style={{ width: 192 }}>
-            <TouchableOpacity
-              className="px-4 py-3 border-b border-gray-200"
-              onPress={() => {
-                Toast.show({ type: 'info', text1: 'Subscriptions coming soon!' });
-                setSettingsOpen(false);
-              }}
-            >
-              <Text className="text-sm text-gray-700">Subscriptions</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="px-4 py-3"
-              onPress={() => {
-                signOut();
-                setSettingsOpen(false);
-              }}
-            >
-              <Text className="text-sm text-red-600">Sign Out</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Lower middle - Light cyan */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 300,
+            height: 300,
+            top: 700,
+            left: 50,
+            backgroundColor: '#CFFAFE',
+            opacity: 0.25,
+          }}
+        />
+
+        {/* Bottom left - Warm grey */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 350,
+            height: 350,
+            bottom: -150,
+            left: -100,
+            backgroundColor: '#F5F5F5',
+            opacity: 0.35,
+          }}
+        />
+
+        {/* Bottom center - Soft pink */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 280,
+            height: 280,
+            bottom: -80,
+            left: 120,
+            backgroundColor: '#FBCFE8',
+            opacity: 0.2,
+          }}
+        />
+
+        {/* Bottom right - Light lavender */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 260,
+            height: 260,
+            bottom: 100,
+            right: -80,
+            backgroundColor: '#E9D5FF',
+            opacity: 0.25,
+          }}
+        />
       </View>
 
       {/* Main Content */}
-      <ScrollView className="flex-1 px-4 pt-4">
-        {/* Title */}
-        <View className="text-center mb-6">
-          <Text className="text-2xl font-bold text-gray-900 text-center mb-2">
-            Racquet Game Sessions
-          </Text>
-          <Text className="text-base text-gray-800 text-center">
-            Manage your padel and tennis sessions
-          </Text>
-        </View>
-
-        {/* New Session Button */}
-        <TouchableOpacity
-          className="bg-gradient-to-r from-rose-500 to-rose-600 rounded-3xl py-4 px-8 flex-row items-center justify-center gap-3 shadow-xl mb-6"
-          style={{ backgroundColor: '#F43F5E' }}
-          onPress={() => router.push('/create-session')}
-        >
-          <Plus color="white" size={24} />
-          <Text className="text-white font-semibold text-lg">New Session</Text>
-        </TouchableOpacity>
-
-        {/* Search and Filter */}
-        <View className="flex-row gap-3 items-center mb-6">
-          {/* Search */}
-          <View className="flex-1 relative">
-            <Search className="absolute left-3.5 top-1/2 text-gray-400" style={{ marginTop: -8 }} size={16} />
+      <ScrollView
+        className="flex-1 px-4"
+        style={{ paddingTop: 60 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            tintColor="#EF4444"
+          />
+        }
+      >
+        {/* Search Bar - Full Width */}
+        <View className="mb-3">
+          <View className="relative">
+            <View className="absolute left-3.5 top-1/2 z-10" style={{ marginTop: -8 }}>
+              <Search color="#9CA3AF" size={16} />
+            </View>
             <TextInput
               placeholder="Search sessions..."
               value={searchQuery}
               onChangeText={setSearchQuery}
-              className="w-full pl-10 pr-4 py-2.5 bg-white/40 backdrop-blur-xl border border-white/40 rounded-2xl text-gray-900 text-sm shadow-sm"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.8)',
+                borderRadius: 16,
+                paddingLeft: 40,
+                paddingRight: 16,
+                paddingVertical: 12,
+                fontSize: 14,
+                color: '#111827',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.05,
+                shadowRadius: 4,
+                elevation: 2,
+              }}
               placeholderTextColor="#9CA3AF"
             />
           </View>
+        </View>
 
+        {/* Filter, Sort, and View - Same Row */}
+        <View className="flex-row gap-3 items-center mb-4">
           {/* Filter Toggle */}
-          <TouchableOpacity
-            className={`border px-3 py-2.5 rounded-2xl flex-row items-center gap-2 shadow-sm ${
-              showFilters ? 'bg-rose-500/20 border-rose-400/60' : 'bg-white/40 border-white/40'
-            }`}
-            onPress={() => setShowFilters(!showFilters)}
-          >
-            <Filter color={showFilters ? '#991B1B' : '#374151'} size={16} />
-            <Text className={`text-sm font-medium ${showFilters ? 'text-rose-800' : 'text-gray-700'}`}>
-              Filter
-            </Text>
-          </TouchableOpacity>
+          <View style={{ position: 'relative', flex: 1 }}>
+            <TouchableOpacity
+              style={{
+                width: '100%',
+                backgroundColor: showFilters ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.6)',
+                borderWidth: 1,
+                borderColor: showFilters ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255, 255, 255, 0.8)',
+                borderRadius: 16,
+                paddingHorizontal: 12,
+                paddingVertical: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.05,
+                shadowRadius: 4,
+                elevation: 2,
+              }}
+              onPress={() => setShowFilters(!showFilters)}
+            >
+              <Filter color={showFilters ? '#DC2626' : '#374151'} size={16} />
+              <Text style={{ fontSize: 14, fontWeight: '600', color: showFilters ? '#991B1B' : '#374151' }}>
+                Filter
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Sort Control */}
+          <View style={{ position: 'relative', flex: 1 }}>
+            <TouchableOpacity
+              style={{
+                width: '100%',
+                backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.8)',
+                borderRadius: 16,
+                paddingHorizontal: 12,
+                paddingVertical: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.05,
+                shadowRadius: 4,
+                elevation: 2,
+              }}
+              onPress={() => setSortDropdownOpen(!sortDropdownOpen)}
+            >
+              <SortAsc color="#374151" size={16} />
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151' }}>
+                Sort
+              </Text>
+              <ChevronDown color="#374151" size={12} />
+            </TouchableOpacity>
+
+            {/* Sort Dropdown Menu - Inline */}
+            {sortDropdownOpen && (
+              <View style={{
+                position: 'absolute',
+                top: 52,
+                left: 0,
+                right: 0,
+                width: '100%',
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.95)',
+                borderRadius: 16,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 12,
+                elevation: 8,
+                overflow: 'hidden',
+                zIndex: 50,
+              }}>
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    borderBottomWidth: 1,
+                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                    backgroundColor: sortBy === 'creation_date' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                  }}
+                  onPress={() => {
+                    setSortBy('creation_date');
+                    setSortDropdownOpen(false);
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: sortBy === 'creation_date' ? '#1D4ED8' : '#374151' }}>
+                    Created
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    borderBottomWidth: 1,
+                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                    backgroundColor: sortBy === 'alphabetical' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                  }}
+                  onPress={() => {
+                    setSortBy('alphabetical');
+                    setSortDropdownOpen(false);
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: sortBy === 'alphabetical' ? '#1D4ED8' : '#374151' }}>
+                    A-Z
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    backgroundColor: sortBy === 'game_date' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                  }}
+                  onPress={() => {
+                    setSortBy('game_date');
+                    setSortDropdownOpen(false);
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: sortBy === 'game_date' ? '#1D4ED8' : '#374151' }}>
+                    Date
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {/* View Mode Control */}
+          <View style={{ position: 'relative', flex: 1 }}>
+            <TouchableOpacity
+              style={{
+                width: '100%',
+                backgroundColor: 'rgba(255, 255, 255, 0.6)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.8)',
+                borderRadius: 16,
+                paddingHorizontal: 12,
+                paddingVertical: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.05,
+                shadowRadius: 4,
+                elevation: 2,
+              }}
+              onPress={() => setViewDropdownOpen(!viewDropdownOpen)}
+            >
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151' }}>
+                View
+              </Text>
+              <ChevronDown color="#374151" size={12} />
+            </TouchableOpacity>
+
+            {/* View Dropdown Menu */}
+            {viewDropdownOpen && (
+              <View style={{
+                position: 'absolute',
+                top: 52,
+                left: 0,
+                right: 0,
+                width: '100%',
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.95)',
+                borderRadius: 16,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 12,
+                elevation: 8,
+                overflow: 'hidden',
+                zIndex: 50,
+              }}>
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    borderBottomWidth: 1,
+                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                    backgroundColor: viewMode === 'cards' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                  }}
+                  onPress={() => {
+                    setViewMode('cards');
+                    setViewDropdownOpen(false);
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: viewMode === 'cards' ? '#1D4ED8' : '#374151' }}>
+                    Cards
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    backgroundColor: viewMode === 'compact' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                  }}
+                  onPress={() => {
+                    setViewMode('compact');
+                    setViewDropdownOpen(false);
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: viewMode === 'compact' ? '#1D4ED8' : '#374151' }}>
+                    Compact
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* Collapsible Filters */}
         {showFilters && (
-          <View className="bg-white/20 backdrop-blur-xl border border-white/40 rounded-3xl p-4 shadow-lg mb-6">
+          <View style={{
+            backgroundColor: 'rgba(255, 255, 255, 0.5)',
+            borderWidth: 1,
+            borderColor: 'rgba(255, 255, 255, 0.8)',
+            borderRadius: 24,
+            padding: 16,
+            marginBottom: 24,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.05,
+            shadowRadius: 8,
+            elevation: 3,
+          }}>
             <View className="flex-row flex-wrap gap-4">
               {/* Status Filter */}
               <View>
-                <Text className="text-xs font-medium text-gray-700 mb-1">Status</Text>
+                <Text className="text-xs font-semibold text-gray-700 mb-1.5">Status</Text>
                 <TouchableOpacity
-                  className="bg-white/40 border border-white/40 px-3 py-2 rounded-2xl flex-row items-center gap-2 shadow-sm"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                    borderRadius: 12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                    minWidth: 100,
+                  }}
                   onPress={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                  style={{ minWidth: 100 }}
                 >
                   <View
                     className={`w-2 h-2 rounded-full ${
@@ -505,11 +1018,21 @@ export default function HomeScreen() {
 
               {/* Sport Filter */}
               <View>
-                <Text className="text-xs font-medium text-gray-700 mb-1">Sport</Text>
+                <Text className="text-xs font-semibold text-gray-700 mb-1.5">Sport</Text>
                 <TouchableOpacity
-                  className="bg-white/40 border border-white/40 px-3 py-2 rounded-2xl flex-row items-center gap-2 shadow-sm"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                    borderRadius: 12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                    minWidth: 100,
+                  }}
                   onPress={() => setSportDropdownOpen(!sportDropdownOpen)}
-                  style={{ minWidth: 100 }}
                 >
                   {sportFilter === 'padel' && <PadelIcon color="#EA580C" size={16} />}
                   {sportFilter === 'tennis' && <TennisIcon color="#16A34A" size={16} />}
@@ -524,29 +1047,27 @@ export default function HomeScreen() {
               {/* Reset Button */}
               <View className="flex-1 justify-end">
                 <TouchableOpacity
-                  className="bg-gray-500/80 px-4 py-2 rounded-2xl shadow-sm"
+                  style={{
+                    backgroundColor: 'rgba(107, 114, 128, 0.8)',
+                    borderRadius: 12,
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 4,
+                    elevation: 2,
+                  }}
                   onPress={resetFilters}
                 >
-                  <Text className="text-sm font-medium text-white text-center">Reset</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF', textAlign: 'center' }}>
+                    Reset
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
         )}
-
-        {/* Sort Control */}
-        <View className="flex-row justify-start mb-6">
-          <TouchableOpacity
-            className="bg-white/40 border border-white/40 px-3 py-2 rounded-2xl flex-row items-center gap-1 shadow-sm"
-            onPress={() => setSortDropdownOpen(!sortDropdownOpen)}
-          >
-            <SortAsc color="#374151" size={16} />
-            <Text className="text-sm font-medium text-gray-700">
-              Sort: {sortBy === 'creation_date' ? 'Created' : sortBy === 'alphabetical' ? 'A-Z' : 'Date'}
-            </Text>
-            <ChevronDown color="#374151" size={12} />
-          </TouchableOpacity>
-        </View>
 
         {/* Sessions List */}
         {isLoading ? (
@@ -582,20 +1103,13 @@ export default function HomeScreen() {
             </View>
           </View>
         ) : (
-          <FlatList
-            data={filteredAndSortedSessions}
-            renderItem={renderSession}
-            keyExtractor={(item) => item.id}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefetching}
-                onRefresh={refetch}
-                tintColor="#F43F5E"
-              />
-            }
-            contentContainerStyle={{ paddingBottom: 24 }}
-            scrollEnabled={false}
-          />
+          <View style={{ paddingBottom: 120 }}>
+            {filteredAndSortedSessions.map((item) => (
+              <View key={item.id}>
+                {renderSession({ item })}
+              </View>
+            ))}
+          </View>
         )}
       </ScrollView>
 
@@ -639,49 +1153,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* Sort Dropdown Modal */}
-      <Modal
-        visible={sortDropdownOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSortDropdownOpen(false)}
-      >
-        <TouchableOpacity
-          className="flex-1"
-          activeOpacity={1}
-          onPress={() => setSortDropdownOpen(false)}
-        >
-          <View className="absolute left-4 top-96 bg-white/80 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl py-1" style={{ width: 144 }}>
-            <TouchableOpacity
-              className="px-4 py-3 border-b border-gray-200"
-              onPress={() => {
-                setSortBy('creation_date');
-                setSortDropdownOpen(false);
-              }}
-            >
-              <Text className="text-sm text-gray-700">Created</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="px-4 py-3 border-b border-gray-200"
-              onPress={() => {
-                setSortBy('alphabetical');
-                setSortDropdownOpen(false);
-              }}
-            >
-              <Text className="text-sm text-gray-700">A-Z</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="px-4 py-3"
-              onPress={() => {
-                setSortBy('game_date');
-                setSortDropdownOpen(false);
-              }}
-            >
-              <Text className="text-sm text-gray-700">Game Date</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* Status Dropdown Modal */}
       <Modal
@@ -695,28 +1166,53 @@ export default function HomeScreen() {
           activeOpacity={1}
           onPress={() => setStatusDropdownOpen(false)}
         >
-          <View className="absolute left-4 top-80 bg-white/80 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl py-1" style={{ width: 128 }}>
-            {['all', 'setup', 'active', 'completed'].map((status) => (
+          <View style={{
+            position: 'absolute',
+            left: 16,
+            top: 260,
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            borderWidth: 1,
+            borderColor: 'rgba(255, 255, 255, 0.95)',
+            borderRadius: 16,
+            width: 160,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 8,
+            overflow: 'hidden',
+          }}>
+            {['all', 'setup', 'active', 'completed'].map((status, index) => (
               <TouchableOpacity
                 key={status}
-                className="px-4 py-2 flex-row items-center gap-2"
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  ...(index < 3 && {
+                    borderBottomWidth: 1,
+                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                  }),
+                }}
                 onPress={() => {
                   setStatusFilter(status);
                   setStatusDropdownOpen(false);
                 }}
               >
                 <View
-                  className={`w-2 h-2 rounded-full ${
-                    status === 'completed'
-                      ? 'bg-green-400'
-                      : status === 'active'
-                      ? 'bg-blue-400'
-                      : status === 'setup'
-                      ? 'bg-gray-400'
-                      : 'bg-gray-300'
-                  }`}
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor:
+                      status === 'completed' ? '#34D399' :
+                      status === 'active' ? '#60A5FA' :
+                      status === 'setup' ? '#9CA3AF' : '#D1D5DB',
+                  }}
                 />
-                <Text className="text-sm text-gray-700">
+                <Text style={{ fontSize: 15, fontWeight: '500', color: '#374151' }}>
                   {status === 'all' ? 'All' : status.charAt(0).toUpperCase() + status.slice(1)}
                 </Text>
               </TouchableOpacity>
@@ -737,11 +1233,36 @@ export default function HomeScreen() {
           activeOpacity={1}
           onPress={() => setSportDropdownOpen(false)}
         >
-          <View className="absolute left-32 top-80 bg-white/80 backdrop-blur-xl border border-white/60 rounded-2xl shadow-xl py-1" style={{ width: 128 }}>
-            {['all', 'padel', 'tennis'].map((sport) => (
+          <View style={{
+            position: 'absolute',
+            left: 192,
+            top: 260,
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            borderWidth: 1,
+            borderColor: 'rgba(255, 255, 255, 0.95)',
+            borderRadius: 16,
+            width: 160,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 8,
+            overflow: 'hidden',
+          }}>
+            {['all', 'padel', 'tennis'].map((sport, index) => (
               <TouchableOpacity
                 key={sport}
-                className="px-4 py-2 flex-row items-center gap-2"
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  ...(index < 2 && {
+                    borderBottomWidth: 1,
+                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                  }),
+                }}
                 onPress={() => {
                   setSportFilter(sport);
                   setSportDropdownOpen(false);
@@ -749,8 +1270,8 @@ export default function HomeScreen() {
               >
                 {sport === 'padel' && <PadelIcon color="#EA580C" size={16} />}
                 {sport === 'tennis' && <TennisIcon color="#16A34A" size={16} />}
-                {sport === 'all' && <View className="w-4 h-4 bg-gray-400 rounded-full" />}
-                <Text className="text-sm text-gray-700">
+                {sport === 'all' && <View style={{ width: 16, height: 16, backgroundColor: '#9CA3AF', borderRadius: 8 }} />}
+                <Text style={{ fontSize: 15, fontWeight: '500', color: '#374151' }}>
                   {sport === 'all' ? 'All' : sport.charAt(0).toUpperCase() + sport.slice(1)}
                 </Text>
               </TouchableOpacity>
