@@ -133,16 +133,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
-      // Note: OAuth implementation requires expo-auth-session
-      // This is a placeholder for the OAuth flow
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: process.env.EXPO_PUBLIC_AUTH_REDIRECT_URL,
+          redirectTo: process.env.EXPO_PUBLIC_AUTH_REDIRECT_URL || 'courtster://auth/callback',
+          skipBrowserRedirect: true,
         },
       });
 
       if (error) throw error;
+
+      // Open the OAuth URL in the browser
+      if (data?.url) {
+        const { WebBrowser } = await import('expo-web-browser');
+        const result = await WebBrowser.openAuthSessionAsync(
+          data.url,
+          process.env.EXPO_PUBLIC_AUTH_REDIRECT_URL || 'courtster://auth/callback'
+        );
+
+        if (result.type === 'success') {
+          // Parse the URL to get the session token
+          const url = new URL(result.url);
+          const accessToken = url.searchParams.get('access_token');
+          const refreshToken = url.searchParams.get('refresh_token');
+
+          if (accessToken && refreshToken) {
+            // Set the session
+            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+
+            if (sessionError) throw sessionError;
+
+            // Check if profile exists, create if not
+            if (sessionData.user) {
+              const { data: existingProfile } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('id', sessionData.user.id)
+                .single();
+
+              if (!existingProfile) {
+                // Create profile for new Google user
+                await supabase.from('profiles').insert({
+                  id: sessionData.user.id,
+                  email: sessionData.user.email!,
+                  display_name: sessionData.user.user_metadata?.full_name || null,
+                  username: sessionData.user.email?.split('@')[0] || null,
+                  avatar_url: sessionData.user.user_metadata?.avatar_url || null,
+                });
+              }
+            }
+
+            Toast.show({
+              type: 'success',
+              text1: 'Welcome!',
+              text2: 'Signed in with Google successfully.',
+            });
+          }
+        }
+      }
     } catch (error) {
       const err = error as AuthError;
       Toast.show({

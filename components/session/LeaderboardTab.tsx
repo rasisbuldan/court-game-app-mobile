@@ -188,32 +188,54 @@ export function LeaderboardTab({
   return (
     <View className="flex-1">
       {/* Sort Options */}
-      <View className="bg-white border-b border-gray-200 px-6 py-3">
+      <View style={{
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 16,
+        padding: 12,
+        marginBottom: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+      }}>
         <View className="flex-row gap-2">
           <TouchableOpacity
-            className={`flex-1 py-2 px-4 rounded-lg ${
-              sortBy === 'points' ? 'bg-primary-500' : 'bg-gray-100'
-            }`}
+            style={{
+              flex: 1,
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              borderRadius: 12,
+              backgroundColor: sortBy === 'points' ? '#EF4444' : '#F3F4F6',
+            }}
             onPress={() => onSortChange('points')}
           >
             <Text
-              className={`text-center font-medium ${
-                sortBy === 'points' ? 'text-white' : 'text-gray-700'
-              }`}
+              style={{
+                textAlign: 'center',
+                fontWeight: '600',
+                color: sortBy === 'points' ? '#FFFFFF' : '#374151',
+              }}
             >
               By Points
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            className={`flex-1 py-2 px-4 rounded-lg ${
-              sortBy === 'wins' ? 'bg-primary-500' : 'bg-gray-100'
-            }`}
+            style={{
+              flex: 1,
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              borderRadius: 12,
+              backgroundColor: sortBy === 'wins' ? '#EF4444' : '#F3F4F6',
+            }}
             onPress={() => onSortChange('wins')}
           >
             <Text
-              className={`text-center font-medium ${
-                sortBy === 'wins' ? 'text-white' : 'text-gray-700'
-              }`}
+              style={{
+                textAlign: 'center',
+                fontWeight: '600',
+                color: sortBy === 'wins' ? '#FFFFFF' : '#374151',
+              }}
             >
               By Wins
             </Text>
@@ -221,20 +243,26 @@ export function LeaderboardTab({
         </View>
       </View>
 
-      <ScrollView
-        className="flex-1 px-6 py-4"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 16 }}
-      >
+      <View className="flex-1">
         {players.map((player, index) => {
           const isExpanded = expandedPlayer === player.id;
 
           return (
             <View
               key={player.id}
-              className={`bg-white rounded-lg p-4 mb-3 border ${
-                index < 3 ? 'border-primary-200' : 'border-gray-200'
-              }`}
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.85)',
+                borderRadius: 16,
+                padding: 16,
+                marginBottom: 12,
+                borderWidth: 1,
+                borderColor: index < 3 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(229, 231, 235, 0.5)',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.05,
+                shadowRadius: 8,
+                elevation: 2,
+              }}
             >
               <View className="flex-row items-center justify-between mb-2">
                 <View className="flex-row items-center flex-1 gap-3">
@@ -260,7 +288,7 @@ export function LeaderboardTab({
 
                   {/* Points */}
                   <View className="items-end">
-                    <Text className="text-2xl font-bold text-primary-500">
+                    <Text style={{ fontSize: 24, fontWeight: '700', color: '#EF4444' }}>
                       {player.totalPoints}
                     </Text>
                     <Text className="text-xs text-gray-500">points</Text>
@@ -337,7 +365,7 @@ export function LeaderboardTab({
             <Text className="text-gray-500 mt-4">No players yet</Text>
           </View>
         )}
-      </ScrollView>
+      </View>
 
       {/* Reassign Modal */}
       <PlayerReassignModal

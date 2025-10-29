@@ -492,10 +492,14 @@ export function RoundsTab({
                   value={match.team1Score?.toString() || ''}
                   onChangeText={(text) => {
                     const team1Score = parseInt(text) || 0;
-                    const team2Score = session.points_per_match - team1Score;
-                    if (team2Score >= 0 && team2Score <= session.points_per_match) {
-                      updateScoreMutation.mutate({ matchIndex: index, team1Score, team2Score });
+
+                    // Only auto-fill for "points" and "total_games" modes, NOT "first_to"
+                    let team2Score = match.team2Score;
+                    if (session.scoring_mode !== 'first_to' && session.scoring_mode !== 'first_to_games') {
+                      team2Score = Math.max(0, session.points_per_match - team1Score);
                     }
+
+                    updateScoreMutation.mutate({ matchIndex: index, team1Score, team2Score: team2Score || 0 });
                   }}
                   maxLength={2}
                   placeholder="-"
@@ -524,10 +528,14 @@ export function RoundsTab({
                   value={match.team2Score?.toString() || ''}
                   onChangeText={(text) => {
                     const team2Score = parseInt(text) || 0;
-                    const team1Score = session.points_per_match - team2Score;
-                    if (team1Score >= 0 && team1Score <= session.points_per_match) {
-                      updateScoreMutation.mutate({ matchIndex: index, team1Score, team2Score });
+
+                    // Only auto-fill for "points" and "total_games" modes, NOT "first_to"
+                    let team1Score = match.team1Score;
+                    if (session.scoring_mode !== 'first_to' && session.scoring_mode !== 'first_to_games') {
+                      team1Score = Math.max(0, session.points_per_match - team2Score);
                     }
+
+                    updateScoreMutation.mutate({ matchIndex: index, team1Score: team1Score || 0, team2Score });
                   }}
                   maxLength={2}
                   placeholder="-"

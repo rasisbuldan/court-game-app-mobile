@@ -19,6 +19,8 @@ import { SyncIndicator } from '../../../components/ui/SyncIndicator';
 import { SessionSettingsModal } from '../../../components/ui/SessionSettingsModal';
 import { OfflineIndicator } from '../../../components/ui/OfflineIndicator';
 import { useTheme, getThemeColors } from '../../../contexts/ThemeContext';
+import { AddPlayerModal } from '../../../components/session/AddPlayerModal';
+import { ManagePlayersModal } from '../../../components/session/ManagePlayersModal';
 
 type Tab = 'rounds' | 'leaderboard' | 'statistics' | 'history';
 type SortBy = 'points' | 'wins';
@@ -39,6 +41,8 @@ export default function SessionScreen() {
   const [algorithm, setAlgorithm] = useState<MexicanoAlgorithm | null>(null);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [addPlayerModalVisible, setAddPlayerModalVisible] = useState(false);
+  const [managePlayersModalVisible, setManagePlayersModalVisible] = useState(false);
 
   // Fetch session data
   const { data: session, isLoading: sessionLoading } = useQuery({
@@ -272,6 +276,156 @@ export default function SessionScreen() {
     );
   }, [currentRound]);
 
+  // Add player mutation
+  const addPlayerMutation = useMutation({
+    mutationFn: async ({ name, rating }: { name: string; rating: number }) => {
+      // Insert new player
+      const { data: newPlayer, error: playerError } = await supabase
+        .from('players')
+        .insert({
+          session_id: id,
+          name,
+          rating,
+          status: 'active',
+          total_points: 0,
+          wins: 0,
+          losses: 0,
+          ties: 0,
+          play_count: 0,
+          sit_count: 0,
+          consecutive_sits: 0,
+          consecutive_plays: 0,
+          skip_rounds: [],
+          skip_count: 0,
+          compensation_points: 0,
+        })
+        .select()
+        .single();
+
+      if (playerError) throw playerError;
+
+      // Log event
+      await supabase.from('event_history').insert({
+        session_id: id,
+        event_type: 'player_added',
+        description: `${name} joined the session`,
+        metadata: { player_id: newPlayer.id, player_name: name, rating },
+      });
+
+      return newPlayer;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['players', id] });
+      queryClient.invalidateQueries({ queryKey: ['eventHistory', id] });
+      Toast.show({
+        type: 'success',
+        text1: 'Player Added',
+        text2: 'Player has been added to sitting players',
+      });
+    },
+    onError: (error: any) => {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to Add Player',
+        text2: error.message,
+      });
+    },
+  });
+
+  // Remove player mutation
+  const removePlayerMutation = useMutation({
+    mutationFn: async (playerId: string) => {
+      const player = players.find(p => p.id === playerId);
+
+      // Delete player
+      const { error } = await supabase
+        .from('players')
+        .delete()
+        .eq('id', playerId);
+
+      if (error) throw error;
+
+      // Log event
+      await supabase.from('event_history').insert({
+        session_id: id,
+        event_type: 'player_removed',
+        description: `${player?.name} was removed from the session`,
+        metadata: { player_id: playerId, player_name: player?.name },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['players', id] });
+      queryClient.invalidateQueries({ queryKey: ['eventHistory', id] });
+      Toast.show({
+        type: 'success',
+        text1: 'Player Removed',
+        text2: 'Player has been removed from the session',
+      });
+    },
+    onError: (error: any) => {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to Remove Player',
+        text2: error.message,
+      });
+    },
+  });
+
+  // Change player status mutation
+  const changeStatusMutation = useMutation({
+    mutationFn: async ({ playerId, newStatus }: { playerId: string; newStatus: string }) => {
+      const { error } = await supabase
+        .from('players')
+        .update({ status: newStatus })
+        .eq('id', playerId);
+
+      if (error) throw error;
+
+      const player = players.find(p => p.id === playerId);
+      await supabase.from('event_history').insert({
+        session_id: id,
+        event_type: 'status_change',
+        description: `${player?.name} status changed to ${newStatus}`,
+        metadata: { player_id: playerId, new_status: newStatus },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['players', id] });
+      queryClient.invalidateQueries({ queryKey: ['eventHistory', id] });
+    },
+    onError: (error: any) => {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to Change Status',
+        text2: error.message,
+      });
+    },
+  });
+
+  const handleAddPlayer = (name: string, rating: number) => {
+    addPlayerMutation.mutate({ name, rating });
+  };
+
+  const handleRemovePlayer = (playerId: string) => {
+    removePlayerMutation.mutate(playerId);
+  };
+
+  const handleChangeStatus = (playerId: string, newStatus: string) => {
+    changeStatusMutation.mutate({ playerId, newStatus });
+  };
+
+  const handleReassignPlayer = (player: Player) => {
+    // This functionality already exists in LeaderboardTab, so we'll just close the modal
+    // and let the user use the existing reassignment in leaderboard
+    setManagePlayersModalVisible(false);
+    setTab('leaderboard');
+    Toast.show({
+      type: 'info',
+      text1: 'Go to Leaderboard',
+      text2: 'Use the player actions in leaderboard to reassign',
+    });
+  };
+
   // Loading state
   if (sessionLoading || playersLoading) {
     return (
@@ -384,7 +538,7 @@ export default function SessionScreen() {
                 borderWidth: 1,
                 borderColor: 'rgba(255, 255, 255, 0.95)',
                 borderRadius: 16,
-                width: 200,
+                width: 220,
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 4 },
                 shadowOpacity: 0.15,
@@ -393,6 +547,24 @@ export default function SessionScreen() {
                 overflow: 'hidden',
                 zIndex: 50,
               }}>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(229, 231, 235, 0.5)' }}
+                  onPress={() => {
+                    setDropdownOpen(false);
+                    setAddPlayerModalVisible(true);
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#374151' }}>Add Player</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(229, 231, 235, 0.5)' }}
+                  onPress={() => {
+                    setDropdownOpen(false);
+                    setManagePlayersModalVisible(true);
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#374151' }}>Manage Players</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={{ paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(229, 231, 235, 0.5)' }}
                   onPress={() => { setDropdownOpen(false); Toast.show({ type: 'info', text1: 'Coming soon' }); }}
@@ -430,6 +602,27 @@ export default function SessionScreen() {
             algorithm={algorithm}
             sessionId={id}
             onRoundChange={setCurrentRoundIndex}
+          />
+        )}
+        {tab === 'leaderboard' && (
+          <LeaderboardTab
+            players={sortedPlayers}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            session={session}
+            sessionId={id}
+            allRounds={allRounds}
+          />
+        )}
+        {tab === 'statistics' && (
+          <StatisticsTab
+            players={players}
+            allRounds={allRounds}
+          />
+        )}
+        {tab === 'history' && (
+          <EventHistoryTab
+            events={eventHistory}
           />
         )}
       </ScrollView>
@@ -479,13 +672,7 @@ export default function SessionScreen() {
             return (
               <TouchableOpacity
                 key={t}
-                onPress={() => {
-                  if (t !== 'rounds') {
-                    Toast.show({ type: 'info', text1: 'Coming Soon', text2: `${t.charAt(0).toUpperCase()}${t.slice(1)} tab will be available soon!` });
-                  } else {
-                    setTab(t);
-                  }
-                }}
+                onPress={() => setTab(t)}
                 style={{
                   flex: 1,
                   alignItems: 'center',
@@ -512,6 +699,24 @@ export default function SessionScreen() {
           })}
         </View>
       </View>
+
+      {/* Add Player Modal */}
+      <AddPlayerModal
+        visible={addPlayerModalVisible}
+        onClose={() => setAddPlayerModalVisible(false)}
+        onAddPlayer={handleAddPlayer}
+        existingPlayers={players}
+      />
+
+      {/* Manage Players Modal */}
+      <ManagePlayersModal
+        visible={managePlayersModalVisible}
+        onClose={() => setManagePlayersModalVisible(false)}
+        players={players}
+        onRemovePlayer={handleRemovePlayer}
+        onChangeStatus={handleChangeStatus}
+        onReassignPlayer={handleReassignPlayer}
+      />
     </View>
   );
 }

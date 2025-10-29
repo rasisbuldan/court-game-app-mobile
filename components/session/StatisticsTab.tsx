@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react';
 import { Users, Target } from 'lucide-react-native';
 import { Player, Round } from '@courtster/shared';
 import { calculatePartnershipStats, calculateHeadToHeadStats } from '@courtster/shared';
+import { StatisticsWidgets } from './widgets/StatisticsWidgets';
 
 interface StatisticsTabProps {
   players: Player[];
@@ -40,33 +41,58 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
 
   return (
     <View className="flex-1">
+      {/* Statistics Widgets */}
+      <StatisticsWidgets players={players} allRounds={allRounds} />
+
       {/* Tab Selector */}
-      <View className="bg-white border-b border-gray-200 px-6 py-3">
+      <View style={{
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 16,
+        padding: 12,
+        marginBottom: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+      }}>
         <View className="flex-row gap-2">
           <TouchableOpacity
-            className={`flex-1 py-2 px-4 rounded-lg ${
-              tab === 'partnerships' ? 'bg-primary-500' : 'bg-gray-100'
-            }`}
+            style={{
+              flex: 1,
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              borderRadius: 12,
+              backgroundColor: tab === 'partnerships' ? '#EF4444' : '#F3F4F6',
+            }}
             onPress={() => setTab('partnerships')}
           >
             <Text
-              className={`text-center font-medium ${
-                tab === 'partnerships' ? 'text-white' : 'text-gray-700'
-              }`}
+              style={{
+                textAlign: 'center',
+                fontWeight: '600',
+                color: tab === 'partnerships' ? '#FFFFFF' : '#374151',
+              }}
             >
               Partnerships
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            className={`flex-1 py-2 px-4 rounded-lg ${
-              tab === 'headtohead' ? 'bg-primary-500' : 'bg-gray-100'
-            }`}
+            style={{
+              flex: 1,
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              borderRadius: 12,
+              backgroundColor: tab === 'headtohead' ? '#EF4444' : '#F3F4F6',
+            }}
             onPress={() => setTab('headtohead')}
           >
             <Text
-              className={`text-center font-medium ${
-                tab === 'headtohead' ? 'text-white' : 'text-gray-700'
-              }`}
+              style={{
+                textAlign: 'center',
+                fontWeight: '600',
+                color: tab === 'headtohead' ? '#FFFFFF' : '#374151',
+              }}
             >
               Head-to-Head
             </Text>
@@ -74,18 +100,26 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
         </View>
       </View>
 
-      <ScrollView
-        className="flex-1 px-6 py-4"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 16 }}
-      >
+      <View className="flex-1">
         {tab === 'partnerships' && (
           <View>
             {topPartnerships.length > 0 ? (
               topPartnerships.map((stat, index) => (
                 <View
                   key={`${stat.player1Id}-${stat.player2Id}`}
-                  className="bg-white rounded-lg p-4 mb-3 border border-gray-200"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+                    borderRadius: 16,
+                    padding: 16,
+                    marginBottom: 12,
+                    borderWidth: 1,
+                    borderColor: 'rgba(229, 231, 235, 0.5)',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 8,
+                    elevation: 2,
+                  }}
                 >
                   <View className="flex-row items-center justify-between mb-2">
                     <View className="flex-1">
@@ -97,7 +131,7 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
                       </Text>
                     </View>
                     <View className="items-end">
-                      <Text className="text-lg font-bold text-primary-500">
+                      <Text style={{ fontSize: 18, fontWeight: '700', color: '#EF4444' }}>
                         {(stat.winRate * 100).toFixed(0)}%
                       </Text>
                       <Text className="text-xs text-gray-500">win rate</Text>
@@ -134,7 +168,19 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
               topHeadToHead.map((stat, index) => (
                 <View
                   key={`${stat.player1Id}-${stat.player2Id}`}
-                  className="bg-white rounded-lg p-4 mb-3 border border-gray-200"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+                    borderRadius: 16,
+                    padding: 16,
+                    marginBottom: 12,
+                    borderWidth: 1,
+                    borderColor: 'rgba(229, 231, 235, 0.5)',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 8,
+                    elevation: 2,
+                  }}
                 >
                   <View className="flex-row items-center justify-between mb-2">
                     <View className="flex-1">
@@ -145,7 +191,7 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
                       <Text className="text-sm font-medium text-gray-700">{stat.player2Name}</Text>
                     </View>
                     <View className="items-end">
-                      <Text className="text-lg font-bold text-primary-500">
+                      <Text style={{ fontSize: 18, fontWeight: '700', color: '#EF4444' }}>
                         {(stat.winRate * 100).toFixed(0)}%
                       </Text>
                       <Text className="text-xs text-gray-500">win rate</Text>
@@ -181,7 +227,7 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
             )}
           </View>
         )}
-      </ScrollView>
+      </View>
     </View>
   );
 }

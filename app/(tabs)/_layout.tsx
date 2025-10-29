@@ -1,5 +1,5 @@
 import { Tabs, useRouter } from 'expo-router';
-import { Home, Plus, Settings } from 'lucide-react-native';
+import { Home, Plus, Settings, User } from 'lucide-react-native';
 import { TouchableOpacity, Platform, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import React from 'react';
@@ -118,6 +118,15 @@ export default function TabsLayout() {
             }
           },
         })}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, size }) => (
+            <User color={color} size={size} />
+          ),
+        }}
       />
       <Tabs.Screen
         name="settings"

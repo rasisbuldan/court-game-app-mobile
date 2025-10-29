@@ -32,88 +32,87 @@ export default function SettingsScreen() {
 
   return (
     <View className="flex-1 bg-gray-50">
-      {/* Glassmorphic Background Blobs */}
+      {/* Glassmorphic Background Blobs - Red/Maroon Theme */}
       <View className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Top left - Soft blue */}
+        {/* Top left - Rose/Red */}
         <View
           className="absolute rounded-full"
           style={{
-            width: 340,
-            height: 340,
-            top: -80,
-            left: -100,
-            backgroundColor: '#DBEAFE',
+            width: 400,
+            height: 400,
+            top: -120,
+            left: -140,
+            backgroundColor: '#FEE2E2',
+            opacity: 0.4,
+          }}
+        />
+
+        {/* Top right - Maroon */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 350,
+            height: 350,
+            top: 80,
+            right: -120,
+            backgroundColor: '#FCA5A5',
             opacity: 0.3,
           }}
         />
 
-        {/* Top right - Light purple */}
+        {/* Middle - Light Red */}
         <View
           className="absolute rounded-full"
           style={{
-            width: 280,
-            height: 280,
-            top: 100,
-            right: -80,
-            backgroundColor: '#F3E8FF',
-            opacity: 0.3,
-          }}
-        />
-
-        {/* Middle - Soft pink */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 240,
-            height: 240,
+            width: 320,
+            height: 320,
             top: 400,
             left: 50,
-            backgroundColor: '#FCE4EC',
+            backgroundColor: '#FECACA',
             opacity: 0.25,
           }}
         />
 
-        {/* Bottom left - Light cyan */}
+        {/* Bottom left - Soft Pink */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 380,
+            height: 380,
+            bottom: -140,
+            left: -100,
+            backgroundColor: '#FEE2E2',
+            opacity: 0.35,
+          }}
+        />
+
+        {/* Bottom right - Light Rose */}
         <View
           className="absolute rounded-full"
           style={{
             width: 300,
             height: 300,
-            bottom: -100,
-            left: -80,
-            backgroundColor: '#CFFAFE',
+            bottom: 100,
+            right: -80,
+            backgroundColor: '#FBCFE8',
             opacity: 0.3,
-          }}
-        />
-
-        {/* Bottom right - Soft grey */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 260,
-            height: 260,
-            bottom: 150,
-            right: -70,
-            backgroundColor: '#F5F5F5',
-            opacity: 0.35,
           }}
         />
       </View>
 
-      {/* iOS 18 Style Glassmorphic Header */}
+      {/* Glassmorphic Header */}
       <View
         style={{
-          backgroundColor: Platform.OS === 'ios' ? 'rgba(255, 255, 255, 0.7)' : '#FFFFFF',
+          backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.8)' : 'rgba(255, 255, 255, 0.7)',
           borderBottomWidth: 0,
           paddingTop: Platform.OS === 'ios' ? 60 : 20,
           paddingBottom: 16,
           paddingHorizontal: 16,
-          ...(Platform.OS === 'ios' && {
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 8,
-          }),
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+          ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
         }}
       >
         <Text className="text-3xl font-bold text-gray-900">Settings</Text>
@@ -129,7 +128,19 @@ export default function SettingsScreen() {
             Account
           </Text>
 
-          <View className="bg-white/60 backdrop-blur-xl border border-white/50 rounded-3xl overflow-hidden shadow-sm">
+          <View style={{
+            backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.4)',
+            borderWidth: 1,
+            borderStyle: 'solid',
+            borderColor: 'rgba(255, 255, 255, 0.6)',
+            borderRadius: 24,
+            overflow: 'hidden',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+          }}>
             {/* Profile */}
             <TouchableOpacity
               className="flex-row items-center justify-between px-4 py-4 border-b border-gray-100"
@@ -153,7 +164,14 @@ export default function SettingsScreen() {
               onPress={handleSubscription}
             >
               <View className="flex-row items-center gap-3">
-                <View className="w-10 h-10 bg-rose-100 rounded-full items-center justify-center">
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  borderRadius: 20,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
                   <CreditCard color="#EF4444" size={20} />
                 </View>
                 <View>
@@ -172,7 +190,19 @@ export default function SettingsScreen() {
             Preferences
           </Text>
 
-          <View className="bg-white/60 backdrop-blur-xl border border-white/50 rounded-3xl overflow-hidden shadow-sm">
+          <View style={{
+            backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.4)',
+            borderWidth: 1,
+            borderStyle: 'solid',
+            borderColor: 'rgba(255, 255, 255, 0.6)',
+            borderRadius: 24,
+            overflow: 'hidden',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+          }}>
             {/* Notifications */}
             <TouchableOpacity
               className="flex-row items-center justify-between px-4 py-4 border-b border-gray-100"
@@ -215,7 +245,19 @@ export default function SettingsScreen() {
             Support
           </Text>
 
-          <View className="bg-white/60 backdrop-blur-xl border border-white/50 rounded-3xl overflow-hidden shadow-sm">
+          <View style={{
+            backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.4)',
+            borderWidth: 1,
+            borderStyle: 'solid',
+            borderColor: 'rgba(255, 255, 255, 0.6)',
+            borderRadius: 24,
+            overflow: 'hidden',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+          }}>
             {/* Help */}
             <TouchableOpacity
               className="flex-row items-center justify-between px-4 py-4"
@@ -237,7 +279,21 @@ export default function SettingsScreen() {
 
         {/* Sign Out Button */}
         <TouchableOpacity
-          className="bg-white/60 backdrop-blur-xl border border-red-200 rounded-3xl px-4 py-4 shadow-sm"
+          style={{
+            backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.4)',
+            borderWidth: 1,
+            borderStyle: 'solid',
+            borderColor: 'rgba(239, 68, 68, 0.3)',
+            borderRadius: 24,
+            paddingHorizontal: 16,
+            paddingVertical: 16,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            overflow: 'hidden',
+            ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+          }}
           onPress={handleSignOut}
         >
           <View className="flex-row items-center justify-center gap-3">
