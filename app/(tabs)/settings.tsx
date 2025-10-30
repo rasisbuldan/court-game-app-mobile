@@ -522,31 +522,6 @@ export default function SettingsScreen() {
             shadowRadius: 12,
             elevation: 3,
           }}>
-            {/* Design Playground */}
-            <TouchableOpacity
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingHorizontal: 16,
-                paddingVertical: 14,
-                borderBottomWidth: 1,
-                borderBottomColor: '#F3F4F6',
-              }}
-              onPress={() => router.push('/(tabs)/demo-nav')}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={{ width: 40, height: 40, backgroundColor: '#DBEAFE', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
-                  <Palette color="#3B82F6" size={20} />
-                </View>
-                <View>
-                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Design Playground</Text>
-                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>View navigation styles</Text>
-                </View>
-              </View>
-              <ChevronRight color="#9CA3AF" size={20} />
-            </TouchableOpacity>
-
             {/* Help */}
             <TouchableOpacity
               style={{
@@ -565,6 +540,47 @@ export default function SettingsScreen() {
                 <View>
                   <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Help & Support</Text>
                   <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Get assistance</Text>
+                </View>
+              </View>
+              <ChevronRight color="#9CA3AF" size={20} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Dev Tools Section */}
+        <View style={{ gap: 8, marginBottom: 24 }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
+            Dev Tools
+          </Text>
+
+          <View style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 20,
+            overflow: 'hidden',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.06,
+            shadowRadius: 12,
+            elevation: 3,
+          }}>
+            {/* Layout Previews */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+              }}
+              onPress={() => router.push('/(tabs)/layout-previews')}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#EDE9FE', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Palette color="#8B5CF6" size={20} />
+                </View>
+                <View>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Layout Previews</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>View UI/UX variations</Text>
                 </View>
               </View>
               <ChevronRight color="#9CA3AF" size={20} />

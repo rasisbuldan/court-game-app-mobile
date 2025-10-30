@@ -156,6 +156,30 @@ export default function TabsLayout() {
           href: null, // Hide from tab bar
         }}
       />
+      <Tabs.Screen
+        name="leaderboard-demo"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="session-demo"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="create-session-demo"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="layout-previews"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
     </Tabs>
   );
 }

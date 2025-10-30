@@ -15,7 +15,6 @@ import {
   MoreHorizontal,
   Settings
 } from 'lucide-react-native';
-import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../hooks/useAuth';
@@ -773,42 +772,17 @@ export default function HomeScreen() {
           paddingTop: insets.top,
         }}
       >
-        {Platform.OS === 'ios' ? (
-          <>
-            <BlurView
-              intensity={80}
-              tint="light"
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-              }}
-            />
-            <View
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: '#FFFFFF',
-              }}
-            />
-          </>
-        ) : (
-          <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: '#FFFFFF',
-            }}
-          />
-        )}
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#FFFFFF',
+            opacity: 0.98,
+          }}
+        />
 
         <View
           style={{

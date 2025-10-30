@@ -1,6 +1,6 @@
 import '../global.css';
 import { useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, StatusBar } from 'react-native';
 import { Stack } from 'expo-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
@@ -151,6 +151,7 @@ export default function RootLayout() {
             persistOptions={{ persister: asyncStoragePersister }}
           >
             <AuthProvider>
+              <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
               <Stack
                 screenOptions={{
                   headerShown: false,

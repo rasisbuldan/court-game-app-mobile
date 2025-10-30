@@ -21,7 +21,9 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Allow Courtster to access your camera to take photos for tournaments.",
         "NSPhotoLibraryUsageDescription": "Allow Courtster to access your photo library.",
-        "UIBackgroundModes": ["fetch", "remote-notification"]
+        "UIBackgroundModes": ["fetch", "remote-notification"],
+        "UIStatusBarStyle": "UIStatusBarStyleDarkContent",
+        "UIViewControllerBasedStatusBarAppearance": false
       },
       "config": {
         "usesNonExemptEncryption": false

@@ -16,19 +16,20 @@ const SCORING_MODES: ScoringModeOption[] = [
     excludeForTennis: true,
   },
   {
+    value: 'total_games',
+    label: 'Total Games',
+    description: 'Play X games total',
+  },
+  {
     value: 'first_to',
     label: 'First to X Points',
     description: 'First team to reach X points wins',
+    excludeForTennis: true,
   },
   {
     value: 'first_to_games',
     label: 'First to X Games',
     description: 'First team to win X games',
-  },
-  {
-    value: 'total_games',
-    label: 'Total Games',
-    description: 'Play X games total',
   },
 ];
 
@@ -61,25 +62,23 @@ export function ScoringModeSelector({
             disabled={disabled}
             activeOpacity={0.7}
             style={{
-              backgroundColor: isSelected
-                ? 'rgba(239, 68, 68, 0.15)'
-                : 'rgba(255, 255, 255, 0.4)',
-              borderWidth: isSelected ? 2 : 1,
-              borderColor: isSelected ? '#EF4444' : 'rgba(255, 255, 255, 0.6)',
-              borderRadius: 16,
-              padding: 14,
-              shadowColor: '#000',
+              backgroundColor: isSelected ? '#EF4444' : 'rgba(255, 255, 255, 0.9)',
+              borderWidth: 1,
+              borderColor: isSelected ? '#EF4444' : 'rgba(209, 213, 219, 0.5)',
+              borderRadius: 14,
+              padding: 16,
+              shadowColor: isSelected ? '#EF4444' : '#000',
               shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.05,
-              shadowRadius: 4,
-              elevation: 2,
+              shadowOpacity: isSelected ? 0.25 : 0.03,
+              shadowRadius: isSelected ? 6 : 3,
+              elevation: isSelected ? 4 : 1,
             }}
           >
             <Text
               style={{
                 fontSize: 15,
-                fontWeight: '600',
-                color: isSelected ? '#DC2626' : '#111827',
+                fontWeight: '700',
+                color: isSelected ? '#FFFFFF' : '#111827',
                 marginBottom: 4,
               }}
             >
@@ -88,7 +87,7 @@ export function ScoringModeSelector({
             <Text
               style={{
                 fontSize: 13,
-                color: isSelected ? '#991B1B' : '#6B7280',
+                color: isSelected ? 'rgba(255, 255, 255, 0.9)' : '#6B7280',
                 lineHeight: 18,
               }}
             >

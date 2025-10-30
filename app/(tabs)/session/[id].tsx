@@ -4,7 +4,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, Share2, MoreVertical, Play, Trophy, BarChart3, History } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
 import { supabase } from '../../../config/supabase';
 import { MexicanoAlgorithm, Player, Round, Match } from '@courtster/shared';
 import { useAuth } from '../../../hooks/useAuth';
@@ -22,6 +21,7 @@ import { useTheme, getThemeColors } from '../../../contexts/ThemeContext';
 import { AddPlayerModal } from '../../../components/session/AddPlayerModal';
 import { ManagePlayersModal } from '../../../components/session/ManagePlayersModal';
 import { SwitchPlayerModal } from '../../../components/session/SwitchPlayerModal';
+import { ShareResultsModal } from '../../../components/session/ShareResultsModal';
 
 type Tab = 'rounds' | 'leaderboard' | 'statistics' | 'history';
 type SortBy = 'points' | 'wins';
@@ -64,6 +64,7 @@ export default function SessionScreen() {
   const [addPlayerModalVisible, setAddPlayerModalVisible] = useState(false);
   const [managePlayersModalVisible, setManagePlayersModalVisible] = useState(false);
   const [switchPlayerModalVisible, setSwitchPlayerModalVisible] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
 
   // Fetch session data
@@ -259,9 +260,15 @@ export default function SessionScreen() {
     []
   );
 
+  // Recalculate player stats from rounds (for real-time updates)
+  const recalculatedPlayers = useMemo(() => {
+    if (!session || allRounds.length === 0) return players;
+    return calculatePlayerStatsFromRounds(players, allRounds, session);
+  }, [players, allRounds, session, calculatePlayerStatsFromRounds]);
+
   // Sorted players with tiebreakers
   const sortedPlayers = useMemo(() => {
-    return [...players].sort((a, b) => {
+    return [...recalculatedPlayers].sort((a, b) => {
       if (sortBy === 'points') {
         // Primary: Sort by total points
         const pointsDiff = b.totalPoints - a.totalPoints;
@@ -446,6 +453,10 @@ export default function SessionScreen() {
       text1: 'Go to Leaderboard',
       text2: 'Use the player actions in leaderboard to reassign',
     });
+  };
+
+  const handleShareResults = () => {
+    setShareModalVisible(true);
   };
 
   // Switch player mutation
@@ -690,14 +701,15 @@ export default function SessionScreen() {
             </View>
           </View>
 
-          {/* Dropdown Menu Button */}
-          <View style={{ position: 'relative' }}>
+          {/* Share and Menu Buttons */}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {/* Share Results Button */}
             <TouchableOpacity
-              onPress={() => setDropdownOpen(!dropdownOpen)}
+              onPress={handleShareResults}
               style={{
                 width: 40,
                 height: 40,
-                backgroundColor: '#FFFFFF',
+                backgroundColor: '#EF4444',
                 borderRadius: 12,
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -708,8 +720,29 @@ export default function SessionScreen() {
                 elevation: 3,
               }}
             >
-              <MoreVertical color="#111827" size={20} />
+              <Share2 color="#FFFFFF" size={20} strokeWidth={2.5} />
             </TouchableOpacity>
+
+            {/* Dropdown Menu Button */}
+            <View style={{ position: 'relative' }}>
+              <TouchableOpacity
+                onPress={() => setDropdownOpen(!dropdownOpen)}
+                style={{
+                  width: 40,
+                  height: 40,
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.06,
+                  shadowRadius: 8,
+                  elevation: 3,
+                }}
+              >
+                <MoreVertical color="#111827" size={20} />
+              </TouchableOpacity>
 
             {/* Dropdown Menu */}
             {dropdownOpen && (
@@ -811,14 +844,16 @@ export default function SessionScreen() {
                 </TouchableOpacity>
               </View>
             )}
+            </View>
           </View>
         </View>
       </View>
 
       {/* Tab Content */}
-      <ScrollView className="flex-1 px-3 pt-3" contentContainerStyle={{ paddingBottom: 120 }}>
-        {tab === 'rounds' && (
-          <RoundsTab
+      <View style={{ flex: 1 }}>
+        <ScrollView className="flex-1 px-3 pt-3" contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+          {tab === 'rounds' && (
+            <RoundsTab
             currentRound={currentRound}
             currentRoundIndex={currentRoundIndex}
             allRounds={allRounds}
@@ -844,7 +879,7 @@ export default function SessionScreen() {
         )}
         {tab === 'statistics' && (
           <StatisticsTab
-            players={players}
+            players={recalculatedPlayers}
             allRounds={allRounds}
           />
         )}
@@ -853,7 +888,8 @@ export default function SessionScreen() {
             events={eventHistory}
           />
         )}
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       {/* Tab Bar - Full Width at Bottom */}
       <View style={{
@@ -944,6 +980,14 @@ export default function SessionScreen() {
         matches={currentRound?.matches || []}
         allPlayers={players}
         onSwitch={handleSwitchPlayer}
+      />
+
+      {/* Share Results Modal */}
+      <ShareResultsModal
+        visible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        sessionId={id}
+        sessionName={session?.name || 'Game Session'}
       />
     </View>
   );

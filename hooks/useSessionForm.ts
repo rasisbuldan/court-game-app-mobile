@@ -30,6 +30,12 @@ const SCORING_MODE_DEFAULTS: Record<ScoringMode, number> = {
 };
 
 export function useSessionForm() {
+  // Get today's date in YYYY-MM-DD format
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+
   const [formData, setFormData] = useState<SessionFormData>({
     name: '',
     club_name: '',
@@ -40,7 +46,7 @@ export function useSessionForm() {
     scoring_mode: 'points',
     courts: 1,
     points_per_match: 21,
-    game_date: '',
+    game_date: getTodayDate(),
     game_time: '19:00',
     duration_hours: 2,
     matchup_preference: 'any',
@@ -55,9 +61,15 @@ export function useSessionForm() {
 
         // Sport change: Reset scoring mode and points
         if (field === 'sport') {
-          if (value === 'tennis' && prev.scoring_mode === 'points') {
+          // Tennis doesn't support 'points' or 'first_to' modes
+          if (value === 'tennis' && (prev.scoring_mode === 'points' || prev.scoring_mode === 'first_to')) {
             next.scoring_mode = 'first_to_games';
             next.points_per_match = SCORING_MODE_DEFAULTS.first_to_games;
+          }
+          // Padel defaults to 'points' mode
+          if (value === 'padel' && (prev.scoring_mode === 'first_to_games' || prev.scoring_mode === 'total_games')) {
+            next.scoring_mode = 'points';
+            next.points_per_match = SCORING_MODE_DEFAULTS.points;
           }
         }
 

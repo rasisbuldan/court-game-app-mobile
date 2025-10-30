@@ -278,9 +278,16 @@ export function RoundsTab({
   }
 
   return (
-    <View className="flex-1">
+    <View style={{ flex: 1 }}>
       {/* Round Navigation */}
-      <View className="flex-row items-center justify-center gap-3 mb-4">
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        marginBottom: 16,
+        paddingHorizontal: 12,
+      }}>
         <TouchableOpacity
           style={{
             backgroundColor: '#FFFFFF',
@@ -308,6 +315,7 @@ export function RoundsTab({
           paddingVertical: 12,
           paddingHorizontal: 24,
           minWidth: 180,
+          minHeight: 44,
           alignItems: 'center',
           justifyContent: 'center',
           shadowColor: '#000',
@@ -316,7 +324,13 @@ export function RoundsTab({
           shadowRadius: 12,
           elevation: 3,
         }}>
-          <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827', letterSpacing: 0.5 }}>
+          <Text style={{
+            fontSize: 15,
+            fontWeight: '700',
+            color: '#111827',
+            letterSpacing: 0.5,
+            lineHeight: 20,
+          }}>
             ROUND {currentRound.number} OF {allRounds.length}
           </Text>
         </View>
@@ -352,6 +366,7 @@ export function RoundsTab({
             className="flex-1"
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 16 }}
+            style={{ overflow: 'visible' }}
             keyboardShouldPersistTaps="handled"
           >
             {/* Matches */}
@@ -372,6 +387,7 @@ export function RoundsTab({
                     shadowOpacity: 0.06,
                     shadowRadius: 12,
                     elevation: 3,
+                    overflow: 'visible',
                   }}
                 >
                 {compactMode ? (
@@ -680,11 +696,6 @@ export function RoundsTab({
                     fontSize: 24,
                     fontWeight: '700',
                     color: '#111827',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.06,
-                    shadowRadius: 8,
-                    elevation: 2,
                   }}
                   keyboardType="numeric"
                   value={
@@ -794,11 +805,6 @@ export function RoundsTab({
                     fontSize: 24,
                     fontWeight: '700',
                     color: '#111827',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 4,
-                    elevation: 2,
                   }}
                   keyboardType="numeric"
                   value={

@@ -9,10 +9,9 @@ import {
   ActivityIndicator,
   Modal,
 } from 'react-native';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
 import {
   ArrowLeft,
   Trophy,
@@ -29,10 +28,17 @@ import { GameFormatSelector } from '../../components/create/GameFormatSelector';
 import { ScoringModeSelector } from '../../components/create/ScoringModeSelector';
 import { PlayerManager } from '../../components/create/PlayerManager';
 import ClubSelector from '../../components/clubs/ClubSelector';
+import { CourtSelector } from '../../components/create/CourtSelector';
+import { PresetSelector } from '../../components/create/PresetSelector';
+import { DurationSelector } from '../../components/create/DurationSelector';
+import { useAuth } from '../../hooks/useAuth';
+import { supabase } from '../../config/supabase';
+import { importPlayersFromReclub, isValidReclubUrl } from '../../services/reclubImportService';
 
 export default function CreateSessionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const { formData, updateField, updateMultipleFields } = useSessionForm();
   const {
     players,
@@ -48,6 +54,28 @@ export default function CreateSessionScreen() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [reclubUrl, setReclubUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const TAB_BAR_HEIGHT = 88;
+
+  // Auto-select first club if only one exists
+  useEffect(() => {
+    const loadDefaultClub = async () => {
+      if (!user || formData.club_id) return;
+
+      const { data: clubs } = await supabase
+        .from('clubs')
+        .select('id')
+        .eq('creator_id', user.id)
+        .limit(2);
+
+      if (clubs && clubs.length === 1) {
+        updateField('club_id', clubs[0].id);
+      }
+    };
+
+    loadDefaultClub();
+  }, [user]);
 
   const handleAddPlayer = (name: string) => {
     try {
@@ -74,13 +102,88 @@ export default function CreateSessionScreen() {
   };
 
   const handleImport = async () => {
-    // Placeholder for Reclub import
-    Toast.show({
-      type: 'info',
-      text1: 'Coming Soon',
-      text2: 'Reclub import will be implemented',
-    });
-    setIsImportModalOpen(false);
+    if (!reclubUrl.trim()) {
+      Toast.show({
+        type: 'error',
+        text1: 'URL Required',
+        text2: 'Please enter a Reclub event URL',
+      });
+      return;
+    }
+
+    if (!isValidReclubUrl(reclubUrl.trim())) {
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid URL',
+        text2: 'Please provide a valid Reclub event link (e.g., https://reclub.co/m/...)',
+      });
+      return;
+    }
+
+    setIsImporting(true);
+
+    try {
+      const result = await importPlayersFromReclub(reclubUrl.trim());
+
+      if (result.error) {
+        Toast.show({
+          type: 'error',
+          text1: 'Import Failed',
+          text2: result.error,
+        });
+        return;
+      }
+
+      if (result.players.length === 0) {
+        Toast.show({
+          type: 'error',
+          text1: 'No Players Found',
+          text2: 'No confirmed players found in this Reclub event',
+        });
+        return;
+      }
+
+      // Import players
+      setPlayersFromImport(result.players);
+
+      // Import event details if available
+      if (result.eventDetails) {
+        const updates: any = {};
+
+        if (result.eventDetails.date) {
+          updates.game_date = result.eventDetails.date;
+        }
+
+        if (result.eventDetails.time) {
+          updates.game_time = result.eventDetails.time;
+        }
+
+        if (result.eventDetails.duration) {
+          updates.duration_hours = result.eventDetails.duration;
+        }
+
+        if (Object.keys(updates).length > 0) {
+          updateMultipleFields(updates);
+        }
+      }
+
+      Toast.show({
+        type: 'success',
+        text1: 'Import Successful',
+        text2: `Imported ${result.players.length} player${result.players.length > 1 ? 's' : ''} from Reclub`,
+      });
+
+      setIsImportModalOpen(false);
+      setReclubUrl('');
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Import Failed',
+        text2: error instanceof Error ? error.message : 'Failed to import from Reclub',
+      });
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const validateForm = (): { isValid: boolean; errors: string[] } => {
@@ -183,11 +286,84 @@ export default function CreateSessionScreen() {
       return;
     }
 
+    if (!user) {
+      Toast.show({
+        type: 'error',
+        text1: 'Authentication Error',
+        text2: 'You must be logged in to create a session',
+      });
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      // TODO: Implement session creation via Supabase
-      await new Promise((resolve) => setTimeout(resolve, 1500)); // Simulate API call
+      // Create session
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('game_sessions')
+        .insert({
+          name: formData.name.trim(),
+          club_name: formData.club_name.trim() || null,
+          club_id: formData.club_id,
+          sport: formData.sport,
+          type: formData.type,
+          mode: formData.mode,
+          scoring_mode: formData.scoring_mode,
+          matchup_preference: formData.matchup_preference,
+          courts: formData.courts,
+          points_per_match: formData.points_per_match,
+          game_date: formData.game_date,
+          game_time: formData.game_time,
+          duration_hours: formData.duration_hours,
+          current_round: 0,
+          round_data: [],
+          user_id: user.id,
+          can_edit_settings: true,
+          is_public: false,
+          share_token: null,
+          share_pin: null,
+        })
+        .select()
+        .single();
+
+      if (sessionError) {
+        console.error('Error creating session:', sessionError);
+        throw new Error('Failed to create session');
+      }
+
+      if (!sessionData) {
+        throw new Error('Session created but no data returned');
+      }
+
+      // Create players
+      const playersData = players.map((player) => ({
+        session_id: sessionData.id,
+        name: player.name.trim(),
+        gender: player.gender,
+        partner_id: player.partnerId || null,
+        rating: 5.0,
+        total_points: 0,
+        wins: 0,
+        losses: 0,
+        ties: 0,
+        play_count: 0,
+        sit_count: 0,
+        consecutive_sits: 0,
+        consecutive_plays: 0,
+        status: 'active',
+        skip_rounds: [],
+        skip_count: 0,
+        compensation_points: 0,
+      }));
+
+      const { error: playersError } = await supabase.from('players').insert(playersData);
+
+      if (playersError) {
+        console.error('Error creating players:', playersError);
+        // Rollback: delete the session
+        await supabase.from('game_sessions').delete().eq('id', sessionData.id);
+        throw new Error('Failed to create players');
+      }
 
       Toast.show({
         type: 'success',
@@ -195,12 +371,14 @@ export default function CreateSessionScreen() {
         text2: 'Session created successfully',
       });
 
-      router.back();
+      // Navigate to the session detail page
+      router.replace(`/session/${sessionData.id}`);
     } catch (error) {
+      console.error('Error creating session:', error);
       Toast.show({
         type: 'error',
         text1: 'Error',
-        text2: 'Failed to create session',
+        text2: error instanceof Error ? error.message : 'Failed to create session',
       });
     } finally {
       setIsSubmitting(false);
@@ -222,42 +400,17 @@ export default function CreateSessionScreen() {
           paddingTop: insets.top,
         }}
       >
-        {Platform.OS === 'ios' ? (
-          <>
-            <BlurView
-              intensity={80}
-              tint="light"
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-              }}
-            />
-            <View
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(255, 255, 255, 0.7)',
-              }}
-            />
-          </>
-        ) : (
-          <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: '#FFFFFF',
-            }}
-          />
-        )}
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#FFFFFF',
+            opacity: 0.98,
+          }}
+        />
 
         <View
           style={{
@@ -289,7 +442,7 @@ export default function CreateSessionScreen() {
         <ScrollView
           contentContainerStyle={{
             paddingTop: insets.top + 60,
-            paddingBottom: insets.bottom + 100,
+            paddingBottom: TAB_BAR_HEIGHT + 16,
             paddingHorizontal: 16,
             gap: 16,
           }}
@@ -380,24 +533,27 @@ export default function CreateSessionScreen() {
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity
                 onPress={() => updateField('sport', 'padel')}
+                activeOpacity={0.7}
                 style={{
                   flex: 1,
-                  backgroundColor:
-                    formData.sport === 'padel'
-                      ? 'rgba(239, 68, 68, 0.15)'
-                      : 'rgba(255, 255, 255, 0.4)',
-                  borderWidth: formData.sport === 'padel' ? 2 : 1,
-                  borderColor: formData.sport === 'padel' ? '#EF4444' : 'rgba(255, 255, 255, 0.6)',
-                  borderRadius: 16,
+                  backgroundColor: formData.sport === 'padel' ? '#EF4444' : 'rgba(255, 255, 255, 0.9)',
+                  borderWidth: 1,
+                  borderColor: formData.sport === 'padel' ? '#EF4444' : 'rgba(209, 213, 219, 0.5)',
+                  borderRadius: 12,
                   paddingVertical: 12,
                   alignItems: 'center',
+                  shadowColor: formData.sport === 'padel' ? '#EF4444' : 'transparent',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: formData.sport === 'padel' ? 0.25 : 0,
+                  shadowRadius: 4,
+                  elevation: formData.sport === 'padel' ? 3 : 0,
                 }}
               >
                 <Text
                   style={{
                     fontSize: 15,
                     fontWeight: '600',
-                    color: formData.sport === 'padel' ? '#DC2626' : '#111827',
+                    color: formData.sport === 'padel' ? '#FFFFFF' : '#111827',
                   }}
                 >
                   Padel
@@ -406,24 +562,27 @@ export default function CreateSessionScreen() {
 
               <TouchableOpacity
                 onPress={() => updateField('sport', 'tennis')}
+                activeOpacity={0.7}
                 style={{
                   flex: 1,
-                  backgroundColor:
-                    formData.sport === 'tennis'
-                      ? 'rgba(239, 68, 68, 0.15)'
-                      : 'rgba(255, 255, 255, 0.4)',
-                  borderWidth: formData.sport === 'tennis' ? 2 : 1,
-                  borderColor: formData.sport === 'tennis' ? '#EF4444' : 'rgba(255, 255, 255, 0.6)',
-                  borderRadius: 16,
+                  backgroundColor: formData.sport === 'tennis' ? '#EF4444' : 'rgba(255, 255, 255, 0.9)',
+                  borderWidth: 1,
+                  borderColor: formData.sport === 'tennis' ? '#EF4444' : 'rgba(209, 213, 219, 0.5)',
+                  borderRadius: 12,
                   paddingVertical: 12,
                   alignItems: 'center',
+                  shadowColor: formData.sport === 'tennis' ? '#EF4444' : 'transparent',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: formData.sport === 'tennis' ? 0.25 : 0,
+                  shadowRadius: 4,
+                  elevation: formData.sport === 'tennis' ? 3 : 0,
                 }}
               >
                 <Text
                   style={{
                     fontSize: 15,
                     fontWeight: '600',
-                    color: formData.sport === 'tennis' ? '#DC2626' : '#111827',
+                    color: formData.sport === 'tennis' ? '#FFFFFF' : '#111827',
                   }}
                 >
                   Tennis
@@ -431,27 +590,16 @@ export default function CreateSessionScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Courts Dropdown */}
+            {/* Courts Selector */}
             <View>
               <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 6 }}>
                 Courts
               </Text>
-              <View
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                  borderWidth: 1,
-                  borderColor: 'rgba(209, 213, 219, 0.5)',
-                  borderRadius: 16,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <Text style={{ fontSize: 14, color: '#111827' }}>{formData.courts}</Text>
-                <ChevronDown color="#6B7280" size={18} />
-              </View>
+              <CourtSelector
+                value={formData.courts}
+                onChange={(value) => updateField('courts', value)}
+                mode={formData.mode}
+              />
             </View>
 
             {/* Game Type */}
@@ -505,30 +653,17 @@ export default function CreateSessionScreen() {
               />
             </View>
 
-            {/* Points/Games */}
+            {/* Points/Games Preset Selector */}
             <View>
               <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 6 }}>
                 {formData.scoring_mode === 'total_games' || formData.scoring_mode === 'first_to_games'
                   ? 'Games per Match'
                   : 'Points per Match'}
               </Text>
-              <TextInput
-                value={formData.points_per_match.toString()}
-                onChangeText={(text) => {
-                  const num = parseInt(text) || 0;
-                  updateField('points_per_match', num);
-                }}
-                keyboardType="number-pad"
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                  borderWidth: 1,
-                  borderColor: 'rgba(209, 213, 219, 0.5)',
-                  borderRadius: 16,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  fontSize: 14,
-                  color: '#111827',
-                }}
+              <PresetSelector
+                value={formData.points_per_match}
+                onChange={(value) => updateField('points_per_match', value)}
+                mode={formData.scoring_mode === 'first_to_games' || formData.scoring_mode === 'total_games' ? 'games' : 'points'}
               />
             </View>
           </View>
@@ -617,25 +752,11 @@ export default function CreateSessionScreen() {
 
             <View>
               <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 6 }}>
-                Duration (hours)
+                Duration
               </Text>
-              <TextInput
-                value={formData.duration_hours.toString()}
-                onChangeText={(text) => {
-                  const num = parseFloat(text) || 0;
-                  updateField('duration_hours', num);
-                }}
-                keyboardType="decimal-pad"
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                  borderWidth: 1,
-                  borderColor: 'rgba(209, 213, 219, 0.5)',
-                  borderRadius: 16,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  fontSize: 14,
-                  color: '#111827',
-                }}
+              <DurationSelector
+                value={formData.duration_hours}
+                onChange={(value) => updateField('duration_hours', value)}
               />
             </View>
           </View>
@@ -684,63 +805,64 @@ export default function CreateSessionScreen() {
 
             {isAdvancedOpen && (
               <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 14 }}>
-                {/* Play Mode */}
+                {/* Play Mode - Horizontal Cards */}
                 <View>
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>
-                    Play Mode
-                  </Text>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: '#6B7280' }}>
+                      Court Management Mode
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    {/* Sequential Card */}
                     <TouchableOpacity
                       onPress={() => updateField('mode', 'sequential')}
+                      activeOpacity={0.7}
                       style={{
                         flex: 1,
-                        backgroundColor:
-                          formData.mode === 'sequential'
-                            ? 'rgba(239, 68, 68, 0.15)'
-                            : 'rgba(255, 255, 255, 0.4)',
-                        borderWidth: formData.mode === 'sequential' ? 2 : 1,
-                        borderColor:
-                          formData.mode === 'sequential' ? '#EF4444' : 'rgba(255, 255, 255, 0.6)',
+                        backgroundColor: formData.mode === 'sequential' ? '#EF4444' : 'rgba(255, 255, 255, 0.9)',
+                        borderWidth: 1,
+                        borderColor: formData.mode === 'sequential' ? '#EF4444' : 'rgba(209, 213, 219, 0.5)',
                         borderRadius: 16,
-                        paddingVertical: 12,
-                        alignItems: 'center',
+                        padding: 16,
+                        shadowColor: formData.mode === 'sequential' ? '#EF4444' : '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: formData.mode === 'sequential' ? 0.25 : 0.03,
+                        shadowRadius: formData.mode === 'sequential' ? 6 : 3,
+                        elevation: formData.mode === 'sequential' ? 4 : 1,
                       }}
                     >
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          fontWeight: '600',
-                          color: formData.mode === 'sequential' ? '#DC2626' : '#111827',
-                        }}
-                      >
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: formData.mode === 'sequential' ? '#FFFFFF' : '#111827', marginBottom: 6 }}>
                         Sequential
+                      </Text>
+                      <Text style={{ fontSize: 12, color: formData.mode === 'sequential' ? 'rgba(255, 255, 255, 0.9)' : '#6B7280', lineHeight: 16 }}>
+                        One match at a time on available courts
                       </Text>
                     </TouchableOpacity>
 
+                    {/* Parallel Card */}
                     <TouchableOpacity
                       onPress={() => updateField('mode', 'parallel')}
+                      activeOpacity={0.7}
                       style={{
                         flex: 1,
-                        backgroundColor:
-                          formData.mode === 'parallel'
-                            ? 'rgba(239, 68, 68, 0.15)'
-                            : 'rgba(255, 255, 255, 0.4)',
-                        borderWidth: formData.mode === 'parallel' ? 2 : 1,
-                        borderColor:
-                          formData.mode === 'parallel' ? '#EF4444' : 'rgba(255, 255, 255, 0.6)',
+                        backgroundColor: formData.mode === 'parallel' ? '#EF4444' : 'rgba(255, 255, 255, 0.9)',
+                        borderWidth: 1,
+                        borderColor: formData.mode === 'parallel' ? '#EF4444' : 'rgba(209, 213, 219, 0.5)',
                         borderRadius: 16,
-                        paddingVertical: 12,
-                        alignItems: 'center',
+                        padding: 16,
+                        shadowColor: formData.mode === 'parallel' ? '#EF4444' : '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: formData.mode === 'parallel' ? 0.25 : 0.03,
+                        shadowRadius: formData.mode === 'parallel' ? 6 : 3,
+                        elevation: formData.mode === 'parallel' ? 4 : 1,
                       }}
                     >
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          fontWeight: '600',
-                          color: formData.mode === 'parallel' ? '#DC2626' : '#111827',
-                        }}
-                      >
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: formData.mode === 'parallel' ? '#FFFFFF' : '#111827', marginBottom: 6 }}>
                         Parallel
+                      </Text>
+                      <Text style={{ fontSize: 12, color: formData.mode === 'parallel' ? 'rgba(255, 255, 255, 0.9)' : '#6B7280', lineHeight: 16 }}>
+                        All courts play simultaneously (2-4 courts)
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -756,35 +878,51 @@ export default function CreateSessionScreen() {
                       const isSelected = formData.matchup_preference === pref;
                       const isDisabled = formData.type === 'mixed_mexicano' && pref !== 'mixed_only';
 
+                      const prefLabels = {
+                        any: { title: 'Any Pairing', desc: 'No restrictions on gender pairings' },
+                        mixed_only: { title: 'Mixed Only', desc: 'All pairs must be 1 male + 1 female' },
+                        randomized_modes: { title: 'Varied Pairings', desc: 'Mix of same-gender and mixed pairings' },
+                      };
+
                       return (
                         <TouchableOpacity
                           key={pref}
                           onPress={() => !isDisabled && updateField('matchup_preference', pref)}
                           disabled={isDisabled}
+                          activeOpacity={0.7}
                           style={{
-                            backgroundColor: isSelected
-                              ? 'rgba(239, 68, 68, 0.15)'
-                              : 'rgba(255, 255, 255, 0.4)',
-                            borderWidth: isSelected ? 2 : 1,
-                            borderColor: isSelected ? '#EF4444' : 'rgba(255, 255, 255, 0.6)',
-                            borderRadius: 16,
+                            backgroundColor: isSelected ? '#EF4444' : 'rgba(255, 255, 255, 0.9)',
+                            borderWidth: 1,
+                            borderColor: isSelected ? '#EF4444' : 'rgba(209, 213, 219, 0.5)',
+                            borderRadius: 12,
                             paddingVertical: 12,
-                            paddingHorizontal: 14,
+                            paddingHorizontal: 16,
                             opacity: isDisabled ? 0.5 : 1,
+                            shadowColor: isSelected ? '#EF4444' : 'transparent',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: isSelected ? 0.2 : 0,
+                            shadowRadius: 4,
+                            elevation: isSelected ? 2 : 0,
                           }}
                         >
                           <Text
                             style={{
-                              fontSize: 14,
-                              fontWeight: '600',
-                              color: isSelected ? '#DC2626' : '#111827',
+                              fontSize: 15,
+                              fontWeight: '700',
+                              color: isSelected ? '#FFFFFF' : '#111827',
+                              marginBottom: 2,
                             }}
                           >
-                            {pref === 'any'
-                              ? 'Any'
-                              : pref === 'mixed_only'
-                              ? 'Mixed Only'
-                              : 'Varied Pairings'}
+                            {prefLabels[pref].title}
+                          </Text>
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              color: isSelected ? 'rgba(255, 255, 255, 0.9)' : '#6B7280',
+                              lineHeight: 16,
+                            }}
+                          >
+                            {prefLabels[pref].desc}
                           </Text>
                         </TouchableOpacity>
                       );
@@ -846,125 +984,169 @@ export default function CreateSessionScreen() {
               )}
             </View>
           )}
+          {/* Submit Button */}
+          <View style={{ paddingTop: 8, paddingBottom: 8 }}>
+            <TouchableOpacity
+              onPress={handleSubmit}
+              disabled={isSubmitting || validationErrors.length > 0}
+              activeOpacity={0.7}
+              style={{
+                backgroundColor: validationErrors.length > 0 ? '#9CA3AF' : '#EF4444',
+                borderRadius: 16,
+                paddingVertical: 18,
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                gap: 10,
+                shadowColor: '#EF4444',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: validationErrors.length > 0 ? 0 : 0.35,
+                shadowRadius: 10,
+                elevation: 8,
+              }}
+            >
+              {isSubmitting && <ActivityIndicator color="#FFFFFF" />}
+              <Text style={{ fontSize: 17, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.3 }}>
+                {isSubmitting ? 'Creating Session...' : 'Create Session'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      {/* Fixed Submit Button */}
-      <View
-        style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          paddingHorizontal: 16,
-          paddingBottom: insets.bottom + 16,
-          paddingTop: 16,
-          backgroundColor: 'rgba(249, 250, 251, 0.95)',
-          borderTopWidth: 1,
-          borderTopColor: 'rgba(0, 0, 0, 0.05)',
-        }}
-      >
-        <TouchableOpacity
-          onPress={handleSubmit}
-          disabled={isSubmitting || validationErrors.length > 0}
-          style={{
-            backgroundColor: validationErrors.length > 0 ? '#9CA3AF' : '#EF4444',
-            borderRadius: 16,
-            paddingVertical: 16,
-            alignItems: 'center',
-            flexDirection: 'row',
-            justifyContent: 'center',
-            gap: 10,
-            shadowColor: '#EF4444',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-            elevation: 8,
-          }}
-        >
-          {isSubmitting && <ActivityIndicator color="#FFFFFF" />}
-          <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF' }}>
-            {isSubmitting ? 'Creating Session...' : 'Create Session'}
-          </Text>
-        </TouchableOpacity>
-      </View>
 
       {/* Import Modal */}
       <Modal
         visible={isImportModalOpen}
         transparent
-        animationType="fade"
-        onRequestClose={() => setIsImportModalOpen(false)}
+        animationType="slide"
+        onRequestClose={() => !isImporting && setIsImportModalOpen(false)}
       >
-        <View
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => !isImporting && setIsImportModalOpen(false)}
           style={{
             flex: 1,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
             justifyContent: 'center',
             alignItems: 'center',
-            padding: 16,
+            padding: 20,
           }}
         >
           <View
             style={{
               backgroundColor: '#FFFFFF',
               borderRadius: 24,
-              padding: 20,
               width: '100%',
               maxWidth: 400,
-              gap: 16,
+              overflow: 'hidden',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 20 },
+              shadowOpacity: 0.25,
+              shadowRadius: 25,
+              elevation: 10,
             }}
+            onStartShouldSetResponder={() => true}
           >
-            <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>
-              Import from Reclub
-            </Text>
+            {/* Header */}
+            <View style={{
+              padding: 20,
+              paddingBottom: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: '#F3F4F6',
+              backgroundColor: '#FAFAFA',
+            }}>
+              <Text style={{ fontSize: 20, fontWeight: '700', color: '#111827', marginBottom: 2 }}>
+                Import from Reclub
+              </Text>
+              <Text style={{ fontSize: 13, color: '#6B7280', lineHeight: 18 }}>
+                Paste the Reclub event URL to import players and event details
+              </Text>
+            </View>
 
-            <TextInput
-              value={reclubUrl}
-              onChangeText={setReclubUrl}
-              placeholder="Paste Reclub event URL"
-              placeholderTextColor="#9CA3AF"
-              style={{
-                backgroundColor: '#F9FAFB',
-                borderWidth: 1,
-                borderColor: '#E5E7EB',
-                borderRadius: 12,
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                fontSize: 14,
-                color: '#111827',
-              }}
-            />
+            {/* Content */}
+            <View style={{ padding: 20, gap: 16 }}>
+              <View>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>
+                  Reclub Event URL
+                </Text>
+                <TextInput
+                  value={reclubUrl}
+                  onChangeText={setReclubUrl}
+                  placeholder="https://reclub.co/m/..."
+                  placeholderTextColor="#9CA3AF"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  editable={!isImporting}
+                  style={{
+                    backgroundColor: '#F9FAFB',
+                    borderWidth: 2,
+                    borderColor: reclubUrl.trim() && !isValidReclubUrl(reclubUrl.trim()) ? '#EF4444' : '#E5E7EB',
+                    borderRadius: 14,
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    fontSize: 15,
+                    color: '#111827',
+                  }}
+                />
+                {reclubUrl.trim() && !isValidReclubUrl(reclubUrl.trim()) && (
+                  <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>
+                    Please enter a valid Reclub URL
+                  </Text>
+                )}
+              </View>
 
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity
-                onPress={() => setIsImportModalOpen(false)}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#F3F4F6',
-                  borderRadius: 12,
-                  paddingVertical: 12,
-                  alignItems: 'center',
-                }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151' }}>Cancel</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setIsImportModalOpen(false);
+                    setReclubUrl('');
+                  }}
+                  disabled={isImporting}
+                  activeOpacity={0.7}
+                  style={{
+                    flex: 1,
+                    backgroundColor: '#F3F4F6',
+                    borderRadius: 14,
+                    paddingVertical: 14,
+                    alignItems: 'center',
+                    opacity: isImporting ? 0.5 : 1,
+                  }}
+                >
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#374151' }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={handleImport}
-                style={{
-                  flex: 1,
-                  backgroundColor: '#EF4444',
-                  borderRadius: 12,
-                  paddingVertical: 12,
-                  alignItems: 'center',
-                }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>Import</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleImport}
+                  disabled={isImporting || !reclubUrl.trim() || !isValidReclubUrl(reclubUrl.trim())}
+                  activeOpacity={0.7}
+                  style={{
+                    flex: 1,
+                    backgroundColor: (!reclubUrl.trim() || !isValidReclubUrl(reclubUrl.trim()) || isImporting) ? '#9CA3AF' : '#EF4444',
+                    borderRadius: 14,
+                    paddingVertical: 14,
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    justifyContent: 'center',
+                    gap: 8,
+                    shadowColor: '#EF4444',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: (!reclubUrl.trim() || !isValidReclubUrl(reclubUrl.trim()) || isImporting) ? 0 : 0.3,
+                    shadowRadius: 8,
+                    elevation: 4,
+                  }}
+                >
+                  {isImporting && <ActivityIndicator color="#FFFFFF" size="small" />}
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#FFFFFF' }}>
+                    {isImporting ? 'Importing...' : 'Import'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
