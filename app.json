@@ -41,9 +41,9 @@
       ]
     },
     "androidNavigationBar": {
-      "visible": "sticky-immersive",
-      "barStyle": "dark-content",
-      "backgroundColor": "#ffffff"
+      "visible": "leanback",
+      "barStyle": "light-content",
+      "backgroundColor": "#00000000"
     },
     "androidStatusBar": {
       "barStyle": "dark-content",

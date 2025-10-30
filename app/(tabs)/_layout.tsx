@@ -1,11 +1,15 @@
 import { Tabs, useRouter } from 'expo-router';
-import { Home, Plus, Settings, User } from 'lucide-react-native';
-import { TouchableOpacity, Platform, View } from 'react-native';
+import { Home, Plus, Settings, User, Bell } from 'lucide-react-native';
+import { TouchableOpacity, Platform, View, Text } from 'react-native';
 import { BlurView } from 'expo-blur';
 import React from 'react';
+import { useAuth } from '../../hooks/useAuth';
+import { useInvitationsCount } from '../../hooks/useClubInvitations';
 
 export default function TabsLayout() {
   const router = useRouter();
+  const { user } = useAuth();
+  const { data: invitationsCount } = useInvitationsCount(user?.id);
 
   return (
     <Tabs
@@ -25,106 +29,81 @@ export default function TabsLayout() {
           height: 88,
           paddingBottom: 28,
           paddingTop: 8,
-          elevation: 0,
-          // iOS 18 style shadow
-          ...(Platform.OS === 'ios' && {
+          // Platform-specific shadows
+          ...(Platform.OS === 'ios' ? {
             shadowColor: '#000',
             shadowOffset: { width: 0, height: -1 },
             shadowOpacity: 0.08,
             shadowRadius: 12,
+            elevation: 0,
+          } : {
+            elevation: 8,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.15,
+            shadowRadius: 8,
           }),
         },
         tabBarBackground: () => (
-          Platform.OS === 'ios' ? (
-            <>
-              <BlurView
-                intensity={80}
-                tint="light"
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  overflow: 'hidden',
-                }}
-              />
-              <View style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(249, 250, 251, 0.3)', // Light grey tint
-              }} />
-            </>
-          ) : (
-            <View style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: '#F9FAFB',
-            }} />
-          )
+          <View style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: '#FFFFFF',
+          }} />
         ),
       }}
     >
       <Tabs.Screen
         name="home"
         options={{
-          title: 'Game Sessions',
+          title: 'Sessions',
           tabBarIcon: ({ color, size }) => (
-            <Home color={color} size={size} />
+            <Home color={color} size={size} strokeWidth={1.5} />
           ),
         }}
       />
       <Tabs.Screen
-        name="create"
+        name="notifications"
         options={{
-          title: '',
-          tabBarIcon: ({ focused }) => (
-            <View
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: 24,
-                backgroundColor: focused ? '#DC2626' : '#EF4444',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginTop: 8,
-                shadowColor: '#EF4444',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.3,
-                shadowRadius: 8,
-                elevation: 8,
-              }}
-            >
-              <Plus color="#FFFFFF" size={24} strokeWidth={2.5} />
+          title: 'Notifications',
+          tabBarIcon: ({ color, size }) => (
+            <View style={{ position: 'relative' }}>
+              <Bell color={color} size={size} strokeWidth={1.5} />
+              {invitationsCount !== undefined && invitationsCount > 0 && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -8,
+                    minWidth: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    backgroundColor: '#EF4444',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: 4,
+                    borderWidth: 2,
+                    borderColor: '#FFFFFF',
+                  }}
+                >
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF' }}>
+                    {invitationsCount > 9 ? '9+' : invitationsCount}
+                  </Text>
+                </View>
+              )}
             </View>
           ),
         }}
-        listeners={({ navigation }) => ({
-          tabPress: (e) => {
-            e.preventDefault();
-            console.log('Tab pressed, navigating to create-session');
-            console.log('Navigation state:', navigation.getState());
-            try {
-              router.push('/(tabs)/create-session');
-              console.log('Navigation successful');
-            } catch (error) {
-              console.error('Navigation error:', error);
-            }
-          },
-        })}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size }) => (
-            <User color={color} size={size} />
+            <User color={color} size={size} strokeWidth={1.5} />
           ),
         }}
       />
@@ -133,7 +112,7 @@ export default function TabsLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, size }) => (
-            <Settings color={color} size={size} />
+            <Settings color={color} size={size} strokeWidth={1.5} />
           ),
         }}
       />
@@ -145,10 +124,36 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="edit-profile"
+        options={{
+          href: null, // Hide from tab bar
+          presentation: 'modal',
+        }}
+      />
+      <Tabs.Screen
         name="session/[id]"
         options={{
           href: null, // Hide from tab bar
           tabBarStyle: { display: 'none' }, // Hide entire tab bar on session screen
+        }}
+      />
+      <Tabs.Screen
+        name="create-club"
+        options={{
+          href: null, // Hide from tab bar
+          presentation: 'modal',
+        }}
+      />
+      <Tabs.Screen
+        name="club-detail"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="demo-nav"
+        options={{
+          href: null, // Hide from tab bar
         }}
       />
     </Tabs>

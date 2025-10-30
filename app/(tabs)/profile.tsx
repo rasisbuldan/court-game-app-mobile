@@ -8,8 +8,10 @@ import {
   RefreshControl,
   Alert,
   Platform,
+  Image,
 } from 'react-native';
 import { useState, useEffect } from 'react';
+import { useRouter, Link } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../config/supabase';
 import { useQuery } from '@tanstack/react-query';
@@ -22,11 +24,23 @@ import {
   Calendar,
   Trophy,
   Clock,
+  Users,
+  Plus,
+  ChevronRight,
+  MoreVertical,
+  LogOut,
+  Circle,
+  Target,
 } from 'lucide-react-native';
+import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { formatDistance } from 'date-fns';
+import { useClubs, useOwnedClubs } from '../../hooks/useClubs';
+import { useClubMemberCount } from '../../hooks/useClubMembers';
+import ClubCard from '../../components/clubs/ClubCard';
 
 interface UserProfile {
   id: string;
@@ -56,7 +70,9 @@ interface SessionStats {
 }
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const { user, signOut } = useAuth();
+  const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [stats, setStats] = useState<SessionStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,6 +82,11 @@ export default function ProfileScreen() {
   const [editingUsername, setEditingUsername] = useState(false);
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newUsername, setNewUsername] = useState('');
+  const [showMenu, setShowMenu] = useState(false);
+
+  // Fetch user's clubs
+  const { data: clubs, isLoading: clubsLoading } = useClubs(user?.id);
+  const { data: ownedClubs } = useOwnedClubs(user?.id);
 
   useEffect(() => {
     loadProfile();
@@ -73,7 +94,11 @@ export default function ProfileScreen() {
 
   const loadProfile = async () => {
     try {
-      if (!user) return;
+      console.log('Loading profile for user:', user?.id);
+      if (!user) {
+        console.log('No user found, returning');
+        return;
+      }
 
       // Load user profile
       const { data: profileData, error: profileError } = await supabase
@@ -82,8 +107,12 @@ export default function ProfileScreen() {
         .eq('id', user.id)
         .single();
 
-      if (profileError && profileError.code !== 'PGRST116') {
-        // Create profile if it doesn't exist
+      console.log('Profile data:', profileData);
+      console.log('Profile error:', profileError);
+
+      if (profileError && profileError.code === 'PGRST116') {
+        // Profile doesn't exist, create it
+        console.log('Profile not found, creating new profile');
         const { data: newProfile, error: createError } = await supabase
           .from('profiles')
           .insert({
@@ -95,11 +124,18 @@ export default function ProfileScreen() {
           .select()
           .single();
 
+        console.log('New profile created:', newProfile);
+        console.log('Create error:', createError);
+
         if (createError) throw createError;
         setProfile(newProfile);
         setNewDisplayName(newProfile.display_name || '');
         setNewUsername(newProfile.username || '');
+      } else if (profileError) {
+        // Some other error occurred
+        throw profileError;
       } else if (profileData) {
+        // Profile exists, use it
         setProfile(profileData);
         setNewDisplayName(profileData.display_name || '');
         setNewUsername(profileData.username || '');
@@ -431,202 +467,692 @@ export default function ProfileScreen() {
   const joinedDate = formatDistance(new Date(profile.created_at), new Date(), { addSuffix: true });
 
   return (
-    <ScrollView
-      className="flex-1 bg-gray-50"
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-    >
-      {/* Header */}
-      <View className="bg-white border-b border-gray-200 px-4 pt-12 pb-4">
-        <View className="flex-row justify-between items-center">
-          <Text className="text-2xl font-bold text-gray-900">Profile</Text>
+    <View className="flex-1 bg-gray-50">
+      {/* Glassmorphic Background Blobs */}
+      <View className="absolute inset-0 overflow-hidden pointer-events-none">
+        {/* Top left - Light rose */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 420,
+            height: 420,
+            top: -180,
+            left: -160,
+            backgroundColor: '#FCE7F3',
+            opacity: 0.4,
+          }}
+        />
+
+        {/* Top right - Pink */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 360,
+            height: 360,
+            top: 40,
+            right: -140,
+            backgroundColor: '#FBCFE8',
+            opacity: 0.35,
+          }}
+        />
+
+        {/* Middle - Light red */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 340,
+            height: 340,
+            top: 380,
+            left: 80,
+            backgroundColor: '#FEE2E2',
+            opacity: 0.3,
+          }}
+        />
+
+        {/* Bottom left - Rose */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 400,
+            height: 400,
+            bottom: -80,
+            left: 120,
+            backgroundColor: '#FBCFE8',
+            opacity: 0.2,
+          }}
+        />
+
+        {/* Bottom right - Light lavender */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 260,
+            height: 260,
+            bottom: 100,
+            right: -80,
+            backgroundColor: '#E9D5FF',
+            opacity: 0.25,
+          }}
+        />
+      </View>
+
+      {/* Fixed Header */}
+      <View
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 100,
+          paddingTop: insets.top,
+        }}
+      >
+        {Platform.OS === 'ios' ? (
+          <>
+            <BlurView
+              intensity={80}
+              tint="light"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+              }}
+            />
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+              }}
+            />
+          </>
+        ) : (
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: '#FFFFFF',
+            }}
+          />
+        )}
+
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 16,
+            borderBottomWidth: 1,
+            borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>
+            Profile
+          </Text>
           <TouchableOpacity
-            onPress={handleSignOut}
-            className="bg-red-500 px-4 py-2 rounded-xl"
+            onPress={() => setShowMenu(true)}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: '#F3F4F6',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
           >
-            <Text className="text-white font-semibold text-sm">Sign Out</Text>
+            <MoreVertical color="#374151" size={20} />
           </TouchableOpacity>
         </View>
       </View>
 
-      <View className="p-4 gap-4">
+      {/* Menu Modal */}
+      {showMenu && (
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setShowMenu(false)}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.4)',
+            zIndex: 200,
+          }}
+        >
+          <View
+            style={{
+              position: 'absolute',
+              top: insets.top + 64,
+              right: 16,
+              backgroundColor: '#FFFFFF',
+              borderRadius: 16,
+              paddingVertical: 8,
+              minWidth: 220,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.15,
+              shadowRadius: 16,
+              elevation: 8,
+            }}
+          >
+            {/* Create Club Option */}
+            {ownedClubs && ownedClubs.length < 3 && (
+              <TouchableOpacity
+                onPress={() => {
+                  setShowMenu(false);
+                  router.push('/(tabs)/create-club');
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                }}
+              >
+                <Plus color="#EF4444" size={20} />
+                <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827', flex: 1 }}>
+                  Create Club
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Divider */}
+            <View style={{ height: 1, backgroundColor: '#F3F4F6', marginVertical: 4 }} />
+
+            {/* Sign Out Option */}
+            <TouchableOpacity
+              onPress={() => {
+                setShowMenu(false);
+                Alert.alert(
+                  'Sign Out',
+                  'Are you sure you want to sign out?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Sign Out',
+                      style: 'destructive',
+                      onPress: async () => {
+                        await signOut();
+                        router.replace('/(auth)/login');
+                      },
+                    },
+                  ]
+                );
+              }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+              }}
+            >
+              <LogOut color="#EF4444" size={20} />
+              <Text style={{ fontSize: 15, fontWeight: '600', color: '#EF4444', flex: 1 }}>
+                Sign Out
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      <ScrollView
+        style={{ flex: 1, paddingTop: insets.top + 64 }}
+        contentContainerStyle={{
+          paddingBottom: Platform.OS === 'ios' ? 100 : insets.bottom + 120,
+          paddingHorizontal: 16,
+          paddingTop: 16
+        }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        <View style={{ gap: 16 }}>
         {/* Profile Card */}
-        <View className="bg-white rounded-3xl p-4 shadow-sm">
+        <View
+          style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 24,
+            padding: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.06,
+            shadowRadius: 12,
+            elevation: 3,
+            position: 'relative',
+          }}
+        >
+          {/* Edit Profile Icon Button - Top Right */}
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/edit-profile')}
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              width: 40,
+              height: 40,
+              backgroundColor: '#FEE2E2',
+              borderRadius: 20,
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+            }}
+          >
+            <Edit2 color="#EF4444" size={20} />
+          </TouchableOpacity>
+
           <View className="flex-row gap-4">
             {/* Profile Picture */}
             <View className="relative">
-              <View className="w-20 h-20 bg-gradient-to-br from-rose-500 to-rose-600 rounded-2xl items-center justify-center overflow-hidden">
+              <View style={{ width: 88, height: 88, borderRadius: 22, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: profile.avatar_url ? '#E5E7EB' : '#EF4444' }}>
                 {uploadingAvatar ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : profile.avatar_url ? (
-                  <View className="w-full h-full">
-                    {/* You'll need to add Image component from react-native for this */}
-                    <User color="#fff" size={40} />
-                  </View>
+                  <Image
+                    source={{ uri: profile.avatar_url }}
+                    style={{ width: 88, height: 88 }}
+                    resizeMode="cover"
+                  />
                 ) : (
-                  <User color="#fff" size={40} />
+                  <User color="#fff" size={44} />
                 )}
               </View>
               <TouchableOpacity
                 onPress={handleAvatarUpload}
                 disabled={uploadingAvatar}
-                className="absolute bottom-0 right-0 w-7 h-7 bg-white rounded-full items-center justify-center shadow-md"
-                style={{ opacity: uploadingAvatar ? 0.5 : 1 }}
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  right: 0,
+                  width: 32,
+                  height: 32,
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: 16,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 4,
+                  elevation: 3,
+                  opacity: uploadingAvatar ? 0.5 : 1,
+                  borderWidth: 2,
+                  borderColor: '#FFFFFF',
+                }}
               >
-                <Camera color="#374151" size={14} />
+                <Camera color="#6B7280" size={16} />
               </TouchableOpacity>
             </View>
 
             {/* Profile Info */}
-            <View className="flex-1 min-w-0">
+            <View className="flex-1 min-w-0 justify-center" style={{ paddingRight: 44 }}>
               {/* Display Name */}
-              {editingName ? (
-                <View className="flex-row gap-2 mb-2">
-                  <TextInput
-                    value={newDisplayName}
-                    onChangeText={setNewDisplayName}
-                    onSubmitEditing={updateDisplayName}
-                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm"
-                    placeholder="Enter display name"
-                    autoFocus
-                  />
-                  <TouchableOpacity
-                    onPress={updateDisplayName}
-                    className="w-8 h-8 bg-green-500 rounded-xl items-center justify-center"
-                  >
-                    <Check color="#fff" size={16} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setEditingName(false);
-                      setNewDisplayName(profile.display_name || '');
-                    }}
-                    className="w-8 h-8 bg-gray-500 rounded-xl items-center justify-center"
-                  >
-                    <X color="#fff" size={16} />
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View className="flex-row items-center gap-2 mb-2">
-                  <Text className="text-lg font-bold text-gray-900 flex-1" numberOfLines={1}>
-                    {profile.display_name || 'Set your name'}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => setEditingName(true)}
-                    className="w-6 h-6 bg-gray-100 rounded-lg items-center justify-center"
-                  >
-                    <Edit2 color="#374151" size={12} />
-                  </TouchableOpacity>
-                </View>
-              )}
+              <Text style={{ fontSize: 20, fontWeight: '700', color: '#111827', marginBottom: 6, lineHeight: 24 }} numberOfLines={1}>
+                {profile.display_name || 'Set your name'}
+              </Text>
 
               {/* Username */}
-              {editingUsername ? (
-                <View className="flex-row gap-2 mb-2">
-                  <TextInput
-                    value={newUsername}
-                    onChangeText={setNewUsername}
-                    onSubmitEditing={updateUsername}
-                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm"
-                    placeholder="Enter username"
-                    autoFocus
-                  />
-                  <TouchableOpacity
-                    onPress={updateUsername}
-                    className="w-8 h-8 bg-green-500 rounded-xl items-center justify-center"
-                  >
-                    <Check color="#fff" size={16} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setEditingUsername(false);
-                      setNewUsername(profile.username || '');
-                    }}
-                    className="w-8 h-8 bg-gray-500 rounded-xl items-center justify-center"
-                  >
-                    <X color="#fff" size={16} />
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View className="flex-row items-center gap-2 mb-2">
-                  <Text className="text-sm text-gray-600 flex-1" numberOfLines={1}>
-                    @{profile.username || 'username'}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => setEditingUsername(true)}
-                    className="w-5 h-5 bg-gray-100 rounded-lg items-center justify-center"
-                  >
-                    <Edit2 color="#374151" size={10} />
-                  </TouchableOpacity>
-                </View>
-              )}
+              <Text style={{ fontSize: 15, fontWeight: '500', color: '#6B7280', marginBottom: 10 }} numberOfLines={1}>
+                @{profile.username || 'username'}
+              </Text>
 
-              <Text className="text-xs text-gray-600 mb-1" numberOfLines={1}>
+              {/* Email */}
+              <Text style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 8 }} numberOfLines={1}>
                 {profile.email}
               </Text>
-              <View className="flex-row items-center gap-2">
-                <Calendar color="#6B7280" size={14} />
-                <Text className="text-xs text-gray-600">Joined {joinedDate}</Text>
+
+              {/* Joined Date */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Calendar color="#9CA3AF" size={14} />
+                <Text style={{ fontSize: 13, color: '#9CA3AF' }}>Joined {joinedDate}</Text>
               </View>
             </View>
           </View>
         </View>
 
+        {/* Clubs Section - Loading Skeleton */}
+        {clubsLoading && (
+          <>
+            {/* Section Label */}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
+              Club
+            </Text>
+
+            <View
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 16,
+                padding: 16,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 8,
+                elevation: 2,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: '#E5E7EB',
+                  }}
+                />
+                <View style={{ flex: 1 }}>
+                  <View style={{ width: '60%', height: 16, backgroundColor: '#E5E7EB', borderRadius: 4, marginBottom: 6 }} />
+                  <View style={{ width: '80%', height: 13, backgroundColor: '#F3F4F6', borderRadius: 4 }} />
+                </View>
+              </View>
+            </View>
+          </>
+        )}
+
+        {/* My Clubs Section */}
+        {!clubsLoading && clubs && clubs.length > 0 && (
+          <>
+            {/* Section Label */}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
+              Club
+            </Text>
+
+            <View>
+              {clubs.map((club, index) => (
+                <View key={club.id} style={{ marginBottom: index < clubs.length - 1 ? 12 : 0 }}>
+                  <TouchableOpacity
+                    onPress={() => router.push(`/(tabs)/club-detail?id=${club.id}`)}
+                    style={{
+                      backgroundColor: '#FFFFFF',
+                      borderRadius: 16,
+                      padding: 16,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.05,
+                      shadowRadius: 8,
+                      elevation: 2,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      {/* Club Logo */}
+                      <View
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 24,
+                          backgroundColor: club.logo_url ? '#E5E7EB' : '#F43F5E',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {club.logo_url ? (
+                          <Image
+                            source={{ uri: club.logo_url }}
+                            style={{ width: 48, height: 48 }}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <Text style={{ fontSize: 20, fontWeight: '700', color: '#FFFFFF' }}>
+                            {club.name.charAt(0).toUpperCase()}
+                          </Text>
+                        )}
+                      </View>
+
+                      {/* Club Info */}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 4 }}>
+                          {club.name}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          {/* Role Badge */}
+                          <View
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 3,
+                              borderRadius: 10,
+                              backgroundColor:
+                                club.userRole === 'owner'
+                                  ? '#D1FAE5'
+                                  : club.userRole === 'admin'
+                                  ? '#DBEAFE'
+                                  : '#F3F4F6',
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                fontWeight: '600',
+                                color:
+                                  club.userRole === 'owner'
+                                    ? '#059669'
+                                    : club.userRole === 'admin'
+                                    ? '#3B82F6'
+                                    : '#6B7280',
+                              }}
+                            >
+                              {club.userRole === 'owner' ? 'Owner' : club.userRole === 'admin' ? 'Admin' : 'Member'}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Arrow */}
+                      <ChevronRight color="#9CA3AF" size={20} />
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* Empty Clubs State */}
+        {!clubsLoading && (!clubs || clubs.length === 0) && (
+          <>
+            {/* Section Label */}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
+              Club
+            </Text>
+
+            <View
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 16,
+                padding: 16,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 8,
+                elevation: 2,
+              }}
+            >
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 24,
+                  backgroundColor: '#FEE2E2',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Users color="#EF4444" size={24} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 4 }}>
+                  No Clubs Yet
+                </Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', lineHeight: 18 }}>
+                  Create or join clubs to organize sessions
+                </Text>
+              </View>
+            </View>
+            <Link href="/(tabs)/create-club" asChild>
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  backgroundColor: '#EF4444',
+                  marginTop: 12,
+                }}
+              >
+                <Plus color="#FFFFFF" size={18} />
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>Create Your First Club</Text>
+              </TouchableOpacity>
+            </Link>
+          </View>
+          </>
+        )}
+
         {/* Statistics Grid */}
         {stats && (
           <>
+            {/* Section Label */}
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
+              Statistics
+            </Text>
+
             <View className="flex-row gap-3">
-              <View className="flex-1 bg-white rounded-2xl p-3 shadow-sm">
-                <View className="flex-row items-center gap-2 mb-2">
-                  <Trophy color="#F43F5E" size={16} />
-                  <Text className="text-xs text-gray-600 font-medium flex-1" numberOfLines={1}>
-                    Total Sessions
-                  </Text>
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: 20,
+                  padding: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.06,
+                  shadowRadius: 12,
+                  elevation: 3,
+                }}
+              >
+                <View style={{ marginBottom: 12, width: 40, height: 40, borderRadius: 12, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center' }}>
+                  <Trophy color="#EF4444" size={20} />
                 </View>
-                <Text className="text-2xl font-bold text-gray-900">{stats.total_sessions}</Text>
+                <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827', marginBottom: 4, lineHeight: 32 }}>{stats.total_sessions}</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', fontWeight: '500' }}>
+                  Total Sessions
+                </Text>
               </View>
 
-              <View className="flex-1 bg-white rounded-2xl p-3 shadow-sm">
-                <View className="flex-row items-center gap-2 mb-2">
-                  <Clock color="#3B82F6" size={16} />
-                  <Text className="text-xs text-gray-600 font-medium flex-1" numberOfLines={1}>
-                    Total Hours
-                  </Text>
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: 20,
+                  padding: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.06,
+                  shadowRadius: 12,
+                  elevation: 3,
+                }}
+              >
+                <View style={{ marginBottom: 12, width: 40, height: 40, borderRadius: 12, backgroundColor: '#DBEAFE', alignItems: 'center', justifyContent: 'center' }}>
+                  <Clock color="#3B82F6" size={20} />
                 </View>
-                <Text className="text-2xl font-bold text-gray-900">{stats.total_hours}</Text>
+                <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827', marginBottom: 4, lineHeight: 32 }}>{stats.total_hours}</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', fontWeight: '500' }}>
+                  Total Hours
+                </Text>
               </View>
             </View>
 
             <View className="flex-row gap-3">
-              <View className="flex-1 bg-white rounded-2xl p-3 shadow-sm">
-                <View className="flex-row items-center gap-2 mb-2">
-                  <View className="w-4 h-4 bg-orange-500 rounded-lg" />
-                  <Text className="text-xs text-gray-600 font-medium flex-1" numberOfLines={1}>
-                    Padel
-                  </Text>
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: 20,
+                  padding: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.06,
+                  shadowRadius: 12,
+                  elevation: 3,
+                }}
+              >
+                <View style={{ marginBottom: 12, width: 40, height: 40, borderRadius: 12, backgroundColor: '#FED7AA', alignItems: 'center', justifyContent: 'center' }}>
+                  <Target color="#EA580C" size={20} />
                 </View>
-                <Text className="text-2xl font-bold text-gray-900">{stats.padel_sessions}</Text>
+                <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827', marginBottom: 4, lineHeight: 32 }}>{stats.padel_sessions}</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', fontWeight: '500' }}>
+                  Padel Sessions
+                </Text>
               </View>
 
-              <View className="flex-1 bg-white rounded-2xl p-3 shadow-sm">
-                <View className="flex-row items-center gap-2 mb-2">
-                  <View className="w-4 h-4 bg-green-500 rounded-full" />
-                  <Text className="text-xs text-gray-600 font-medium flex-1" numberOfLines={1}>
-                    Tennis
-                  </Text>
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: 20,
+                  padding: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.06,
+                  shadowRadius: 12,
+                  elevation: 3,
+                }}
+              >
+                <View style={{ marginBottom: 12, width: 40, height: 40, borderRadius: 12, backgroundColor: '#D1FAE5', alignItems: 'center', justifyContent: 'center' }}>
+                  <Circle color="#10B981" size={20} />
                 </View>
-                <Text className="text-2xl font-bold text-gray-900">{stats.tennis_sessions}</Text>
+                <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827', marginBottom: 4, lineHeight: 32 }}>{stats.tennis_sessions}</Text>
+                <Text style={{ fontSize: 13, color: '#6B7280', fontWeight: '500' }}>
+                  Tennis Sessions
+                </Text>
               </View>
             </View>
 
             {/* Activity Calendar (30-day view) */}
-            <View className="bg-white rounded-3xl p-4 shadow-sm">
-              <Text className="text-base font-bold text-gray-900 mb-3">Activity Calendar</Text>
-              <Text className="text-xs text-gray-600 mb-3">Last 30 days</Text>
+            <View
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 24,
+                padding: 16,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 8,
+                elevation: 2,
+              }}
+            >
+              <View className="mb-2">
+                <View className="flex-row items-center justify-between mb-1">
+                  <Text className="text-base font-bold text-gray-900">Activity Calendar</Text>
+                  <Text className="text-xs text-gray-600">Last 30 days</Text>
+                </View>
+                <Text className="text-xs text-gray-500">
+                  {(() => {
+                    const today = new Date();
+                    const thirtyDaysAgo = new Date();
+                    thirtyDaysAgo.setDate(today.getDate() - 29);
+                    const startMonth = thirtyDaysAgo.toLocaleString('default', { month: 'short' });
+                    const endMonth = today.toLocaleString('default', { month: 'short' });
+                    return startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`;
+                  })()}
+                </Text>
+              </View>
 
               {/* Calendar Grid */}
-              <View style={{ gap: 2 }}>
+              <View style={{ width: '80%', alignSelf: 'center', gap: 3 }}>
                 {/* Day labels */}
-                <View style={{ flexDirection: 'row', gap: 2, marginBottom: 4 }}>
+                <View style={{ flexDirection: 'row', gap: 3, marginBottom: 4 }}>
                   {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => (
                     <View
                       key={i}
@@ -637,7 +1163,7 @@ export default function ProfileScreen() {
                         justifyContent: 'center',
                       }}
                     >
-                      <Text style={{ fontSize: 10, color: '#9CA3AF', fontWeight: '600' }}>
+                      <Text style={{ fontSize: 9, color: '#9CA3AF', fontWeight: '600' }}>
                         {day}
                       </Text>
                     </View>
@@ -698,7 +1224,7 @@ export default function ProfileScreen() {
                   }
 
                   return weeks.map((week, weekIndex) => (
-                    <View key={weekIndex} style={{ flexDirection: 'row', gap: 2, marginBottom: 2 }}>
+                    <View key={weekIndex} style={{ flexDirection: 'row', gap: 3, marginBottom: 3 }}>
                       {week.map((day, dayIndex) => {
                         if (day.count === -1) {
                           // Empty cell
@@ -722,16 +1248,16 @@ export default function ProfileScreen() {
                         let textColor = '#9CA3AF'; // gray-400
 
                         if (intensity === 1) {
-                          backgroundColor = 'rgba(252, 165, 165, 0.6)'; // rose-300
+                          backgroundColor = '#FCA5A5'; // rose-300
                           textColor = '#BE123C'; // rose-700
                         } else if (intensity === 2) {
-                          backgroundColor = 'rgba(251, 113, 133, 0.7)'; // rose-400
+                          backgroundColor = '#FB7185'; // rose-400
                           textColor = '#FFFFFF';
                         } else if (intensity === 3) {
-                          backgroundColor = 'rgba(244, 63, 94, 0.8)'; // rose-500
+                          backgroundColor = '#F43F5E'; // rose-500
                           textColor = '#FFFFFF';
                         } else if (intensity === 4) {
-                          backgroundColor = 'rgba(225, 29, 72, 0.9)'; // rose-600
+                          backgroundColor = '#E11D48'; // rose-600
                           textColor = '#FFFFFF';
                         }
 
@@ -742,7 +1268,7 @@ export default function ProfileScreen() {
                               flex: 1,
                               aspectRatio: 1,
                               backgroundColor,
-                              borderRadius: 8,
+                              borderRadius: 4,
                               alignItems: 'center',
                               justifyContent: 'center',
                             }}
@@ -754,19 +1280,7 @@ export default function ProfileScreen() {
                               });
                             }}
                           >
-                            {day.monthLabel && (
-                              <Text style={{
-                                position: 'absolute',
-                                top: -16,
-                                left: 0,
-                                fontSize: 9,
-                                fontWeight: '700',
-                                color: '#6B7280',
-                              }}>
-                                {day.monthLabel}
-                              </Text>
-                            )}
-                            <Text style={{ fontSize: 10, fontWeight: '600', color: textColor }}>
+                            <Text style={{ fontSize: 8, fontWeight: '600', color: textColor }}>
                               {day.dayOfMonth}
                             </Text>
                           </TouchableOpacity>
@@ -813,46 +1327,57 @@ export default function ProfileScreen() {
             </View>
 
             {/* Detailed Statistics */}
-            <View className="bg-white rounded-3xl p-4 shadow-sm">
+            <View
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: 24,
+                padding: 16,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 8,
+                elevation: 2,
+              }}
+            >
               <Text className="text-base font-bold text-gray-900 mb-3">Detailed Statistics</Text>
               <View className="flex-row flex-wrap gap-2">
-                <View className="bg-gray-50 rounded-xl p-3 w-[48%]">
+                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 12, width: '48%' }}>
                   <Text className="text-xs text-gray-600 font-medium mb-1">Avg Players</Text>
                   <Text className="text-xl font-bold text-gray-900">
                     {stats.avg_players_per_session}
                   </Text>
                 </View>
 
-                <View className="bg-gray-50 rounded-xl p-3 w-[48%]">
+                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 12, width: '48%' }}>
                   <Text className="text-xs text-gray-600 font-medium mb-1">Common Points</Text>
                   <Text className="text-xl font-bold text-gray-900">{stats.most_common_points}</Text>
                 </View>
 
-                <View className="bg-gray-50 rounded-xl p-3 w-[48%]">
+                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 12, width: '48%' }}>
                   <Text className="text-xs text-gray-600 font-medium mb-1">Usual Courts</Text>
                   <Text className="text-xl font-bold text-gray-900">
                     {stats.most_used_court_count}
                   </Text>
                 </View>
 
-                <View className="bg-gray-50 rounded-xl p-3 w-[48%]">
+                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 12, width: '48%' }}>
                   <Text className="text-xs text-gray-600 font-medium mb-1">Mexicano</Text>
                   <Text className="text-xl font-bold text-gray-900">{stats.mexicano_sessions}</Text>
                 </View>
 
-                <View className="bg-gray-50 rounded-xl p-3 w-[48%]">
+                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 12, width: '48%' }}>
                   <Text className="text-xs text-gray-600 font-medium mb-1">Americano</Text>
                   <Text className="text-xl font-bold text-gray-900">{stats.americano_sessions}</Text>
                 </View>
 
-                <View className="bg-gray-50 rounded-xl p-3 w-[48%]">
+                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 12, width: '48%' }}>
                   <Text className="text-xs text-gray-600 font-medium mb-1">Total Rounds</Text>
                   <Text className="text-xl font-bold text-gray-900">
                     {stats.total_rounds_played}
                   </Text>
                 </View>
 
-                <View className="bg-gray-50 rounded-xl p-3 w-[48%]">
+                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 12, padding: 12, width: '48%' }}>
                   <Text className="text-xs text-gray-600 font-medium mb-1">Fav Sport</Text>
                   <Text className="text-xl font-bold text-gray-900">
                     {stats.favorite_sport === 'padel'
@@ -884,7 +1409,8 @@ export default function ProfileScreen() {
             </View>
           </>
         )}
-      </View>
-    </ScrollView>
+        </View>
+      </ScrollView>
+    </View>
   );
 }

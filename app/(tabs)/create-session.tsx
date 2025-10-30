@@ -28,9 +28,9 @@ import { usePlayerForm } from '../../hooks/usePlayerForm';
 import { GameFormatSelector } from '../../components/create/GameFormatSelector';
 import { ScoringModeSelector } from '../../components/create/ScoringModeSelector';
 import { PlayerManager } from '../../components/create/PlayerManager';
+import ClubSelector from '../../components/clubs/ClubSelector';
 
 export default function CreateSessionScreen() {
-  console.log('CreateSessionScreen rendering');
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { formData, updateField, updateMultipleFields } = useSessionForm();
@@ -340,26 +340,12 @@ export default function CreateSessionScreen() {
               }}
             />
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <MapPin color="#6B7280" size={18} strokeWidth={2} />
-              <TextInput
-                value={formData.club_name}
-                onChangeText={(text) => updateField('club_name', text)}
-                placeholder="Club name (optional)"
-                placeholderTextColor="#9CA3AF"
-                style={{
-                  flex: 1,
-                  backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                  borderWidth: 1,
-                  borderColor: 'rgba(209, 213, 219, 0.5)',
-                  borderRadius: 16,
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  fontSize: 14,
-                  color: '#111827',
-                }}
-              />
-            </View>
+            <ClubSelector
+              selectedClubId={formData.club_id}
+              onSelectClub={(clubId) => updateField('club_id', clubId)}
+              label=""
+              placeholder="Select a club (optional)"
+            />
           </View>
 
           {/* SECTION 2: Sport, Courts & Game Type */}

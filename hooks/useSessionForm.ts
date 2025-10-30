@@ -9,6 +9,7 @@ export type MatchupPreference = 'any' | 'mixed_only' | 'randomized_modes';
 export interface SessionFormData {
   name: string;
   club_name: string;
+  club_id: string | null;
   sport: Sport;
   type: GameType;
   mode: PlayMode;
@@ -32,6 +33,7 @@ export function useSessionForm() {
   const [formData, setFormData] = useState<SessionFormData>({
     name: '',
     club_name: '',
+    club_id: null,
     sport: 'padel',
     type: 'mexicano',
     mode: 'sequential',

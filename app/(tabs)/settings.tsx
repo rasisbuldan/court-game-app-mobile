@@ -1,11 +1,44 @@
-import { View, Text, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Platform, Switch } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
-import { ChevronRight, CreditCard, LogOut, User, Bell, Shield, HelpCircle } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import {
+  ChevronRight,
+  CreditCard,
+  LogOut,
+  User,
+  Bell,
+  Shield,
+  HelpCircle,
+  Globe,
+  Moon,
+  Volume2,
+  Smartphone,
+  Languages,
+  FileText,
+  Mail,
+  MessageSquare,
+  Award,
+  Calendar,
+  Palette
+} from 'lucide-react-native';
+import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import Toast from 'react-native-toast-message';
 
 export default function SettingsScreen() {
   const { user, signOut } = useAuth();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+
+  // Toggle states
+  const [pushNotifications, setPushNotifications] = useState(true);
+  const [emailNotifications, setEmailNotifications] = useState(true);
+  const [sessionReminders, setSessionReminders] = useState(true);
+  const [clubInvites, setClubInvites] = useState(true);
+  const [matchResults, setMatchResults] = useState(true);
+  const [soundEffects, setSoundEffects] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
 
   const handleSignOut = async () => {
     try {
@@ -31,128 +64,77 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-gray-50">
-      {/* Glassmorphic Background Blobs - Red/Maroon Theme */}
-      <View className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Top left - Rose/Red */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 400,
-            height: 400,
-            top: -120,
-            left: -140,
-            backgroundColor: '#FEE2E2',
-            opacity: 0.4,
-          }}
-        />
+    <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
 
-        {/* Top right - Maroon */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 350,
-            height: 350,
-            top: 80,
-            right: -120,
-            backgroundColor: '#FCA5A5',
-            opacity: 0.3,
-          }}
-        />
-
-        {/* Middle - Light Red */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 320,
-            height: 320,
-            top: 400,
-            left: 50,
-            backgroundColor: '#FECACA',
-            opacity: 0.25,
-          }}
-        />
-
-        {/* Bottom left - Soft Pink */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 380,
-            height: 380,
-            bottom: -140,
-            left: -100,
-            backgroundColor: '#FEE2E2',
-            opacity: 0.35,
-          }}
-        />
-
-        {/* Bottom right - Light Rose */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 300,
-            height: 300,
-            bottom: 100,
-            right: -80,
-            backgroundColor: '#FBCFE8',
-            opacity: 0.3,
-          }}
-        />
-      </View>
-
-      {/* Glassmorphic Header */}
+      {/* Fixed Header */}
       <View
         style={{
-          backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.8)' : 'rgba(255, 255, 255, 0.7)',
-          borderBottomWidth: 0,
-          paddingTop: Platform.OS === 'ios' ? 60 : 20,
-          paddingBottom: 16,
-          paddingHorizontal: 16,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 8,
-          ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 100,
+          paddingTop: insets.top,
+          backgroundColor: '#F9FAFB',
         }}
       >
-        <Text className="text-3xl font-bold text-gray-900">Settings</Text>
-        {user?.email && (
-          <Text className="text-sm text-gray-600 mt-1">{user.email}</Text>
-        )}
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 16,
+          }}
+        >
+          <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827', marginBottom: 4 }}>
+            Settings
+          </Text>
+          {user?.email && (
+            <Text style={{ fontSize: 13, color: '#6B7280', fontWeight: '500' }}>
+              {user.email}
+            </Text>
+          )}
+        </View>
       </View>
 
-      <ScrollView className="flex-1 px-4 pt-4" contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView
+        style={{ paddingTop: insets.top + 76 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 120 }}
+      >
         {/* Account Section */}
-        <View className="mb-6">
-          <Text className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 px-2">
+        <View style={{ gap: 8, marginBottom: 24 }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
             Account
           </Text>
 
           <View style={{
-            backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.4)',
-            borderWidth: 1,
-            borderStyle: 'solid',
-            borderColor: 'rgba(255, 255, 255, 0.6)',
-            borderRadius: 24,
+            backgroundColor: '#FFFFFF',
+            borderRadius: 20,
             overflow: 'hidden',
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.08,
+            shadowOpacity: 0.06,
             shadowRadius: 12,
-            ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+            elevation: 3,
           }}>
             {/* Profile */}
             <TouchableOpacity
-              className="flex-row items-center justify-between px-4 py-4 border-b border-gray-100"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}
               onPress={() => Toast.show({ type: 'info', text1: 'Profile settings coming soon' })}
             >
-              <View className="flex-row items-center gap-3">
-                <View className="w-10 h-10 bg-gray-200 rounded-full items-center justify-center">
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#F3F4F6', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
                   <User color="#6B7280" size={20} />
                 </View>
                 <View>
-                  <Text className="text-base font-semibold text-gray-900">Profile</Text>
-                  <Text className="text-xs text-gray-500">Manage your account</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Profile</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Manage your account</Text>
                 </View>
               </View>
               <ChevronRight color="#9CA3AF" size={20} />
@@ -160,23 +142,29 @@ export default function SettingsScreen() {
 
             {/* Subscription */}
             <TouchableOpacity
-              className="flex-row items-center justify-between px-4 py-4"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+              }}
               onPress={handleSubscription}
             >
-              <View className="flex-row items-center gap-3">
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{
                   width: 40,
                   height: 40,
-                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
-                  borderRadius: 20,
+                  backgroundColor: '#FEE2E2',
+                  borderRadius: 12,
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}>
                   <CreditCard color="#EF4444" size={20} />
                 </View>
                 <View>
-                  <Text className="text-base font-semibold text-gray-900">Subscription</Text>
-                  <Text className="text-xs text-gray-500">Upgrade to premium</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Subscription</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Upgrade to premium</Text>
                 </View>
               </View>
               <ChevronRight color="#9CA3AF" size={20} />
@@ -184,54 +172,333 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Notifications Section */}
+        <View style={{ gap: 8, marginBottom: 24 }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
+            Notifications
+          </Text>
+
+          <View style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 20,
+            overflow: 'hidden',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.06,
+            shadowRadius: 12,
+            elevation: 3,
+          }}>
+            {/* Push Notifications */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#DBEAFE', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Bell color="#3B82F6" size={20} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Push Notifications</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Receive app notifications</Text>
+                </View>
+              </View>
+              <Switch
+                value={pushNotifications}
+                onValueChange={setPushNotifications}
+                trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
+                thumbColor={Platform.OS === 'ios' ? undefined : pushNotifications ? '#FFFFFF' : '#F3F4F6'}
+                ios_backgroundColor="#E5E7EB"
+              />
+            </View>
+
+            {/* Email Notifications */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#FEE2E2', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Mail color="#EF4444" size={20} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Email Notifications</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Receive email updates</Text>
+                </View>
+              </View>
+              <Switch
+                value={emailNotifications}
+                onValueChange={setEmailNotifications}
+                trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
+                thumbColor={Platform.OS === 'ios' ? undefined : emailNotifications ? '#FFFFFF' : '#F3F4F6'}
+                ios_backgroundColor="#E5E7EB"
+              />
+            </View>
+
+            {/* Session Reminders */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#FEF3C7', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Calendar color="#F59E0B" size={20} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Session Reminders</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Get reminded before games</Text>
+                </View>
+              </View>
+              <Switch
+                value={sessionReminders}
+                onValueChange={setSessionReminders}
+                trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
+                thumbColor={Platform.OS === 'ios' ? undefined : sessionReminders ? '#FFFFFF' : '#F3F4F6'}
+                ios_backgroundColor="#E5E7EB"
+              />
+            </View>
+
+            {/* Club Invites */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#D1FAE5', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <MessageSquare color="#10B981" size={20} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Club Invitations</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Notify when invited to clubs</Text>
+                </View>
+              </View>
+              <Switch
+                value={clubInvites}
+                onValueChange={setClubInvites}
+                trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
+                thumbColor={Platform.OS === 'ios' ? undefined : clubInvites ? '#FFFFFF' : '#F3F4F6'}
+                ios_backgroundColor="#E5E7EB"
+              />
+            </View>
+
+            {/* Match Results */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#F3E8FF', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Award color="#A855F7" size={20} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Match Results</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Updates on match outcomes</Text>
+                </View>
+              </View>
+              <Switch
+                value={matchResults}
+                onValueChange={setMatchResults}
+                trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
+                thumbColor={Platform.OS === 'ios' ? undefined : matchResults ? '#FFFFFF' : '#F3F4F6'}
+                ios_backgroundColor="#E5E7EB"
+              />
+            </View>
+          </View>
+        </View>
+
         {/* Preferences Section */}
-        <View className="mb-6">
-          <Text className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 px-2">
+        <View style={{ gap: 8, marginBottom: 24 }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
             Preferences
           </Text>
 
           <View style={{
-            backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.4)',
-            borderWidth: 1,
-            borderStyle: 'solid',
-            borderColor: 'rgba(255, 255, 255, 0.6)',
-            borderRadius: 24,
+            backgroundColor: '#FFFFFF',
+            borderRadius: 20,
             overflow: 'hidden',
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.08,
+            shadowOpacity: 0.06,
             shadowRadius: 12,
-            ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+            elevation: 3,
           }}>
-            {/* Notifications */}
+            {/* Language */}
             <TouchableOpacity
-              className="flex-row items-center justify-between px-4 py-4 border-b border-gray-100"
-              onPress={() => Toast.show({ type: 'info', text1: 'Notification settings coming soon' })}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}
+              onPress={() => Toast.show({ type: 'info', text1: 'Language settings coming soon' })}
             >
-              <View className="flex-row items-center gap-3">
-                <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center">
-                  <Bell color="#3B82F6" size={20} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#DBEAFE', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Languages color="#3B82F6" size={20} />
                 </View>
                 <View>
-                  <Text className="text-base font-semibold text-gray-900">Notifications</Text>
-                  <Text className="text-xs text-gray-500">Manage alerts</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Language</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>English</Text>
                 </View>
               </View>
               <ChevronRight color="#9CA3AF" size={20} />
             </TouchableOpacity>
 
-            {/* Privacy */}
-            <TouchableOpacity
-              className="flex-row items-center justify-between px-4 py-4"
-              onPress={() => Toast.show({ type: 'info', text1: 'Privacy settings coming soon' })}
+            {/* Dark Mode */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}
             >
-              <View className="flex-row items-center gap-3">
-                <View className="w-10 h-10 bg-green-100 rounded-full items-center justify-center">
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#F3F4F6', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Moon color="#6B7280" size={20} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Dark Mode</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Coming soon</Text>
+                </View>
+              </View>
+              <Switch
+                value={darkMode}
+                onValueChange={setDarkMode}
+                disabled={true}
+                trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
+                thumbColor={Platform.OS === 'ios' ? undefined : '#F3F4F6'}
+                ios_backgroundColor="#E5E7EB"
+              />
+            </View>
+
+            {/* Sound Effects */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#FED7AA', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Volume2 color="#EA580C" size={20} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Sound Effects</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Enable sound feedback</Text>
+                </View>
+              </View>
+              <Switch
+                value={soundEffects}
+                onValueChange={setSoundEffects}
+                trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
+                thumbColor={Platform.OS === 'ios' ? undefined : soundEffects ? '#FFFFFF' : '#F3F4F6'}
+                ios_backgroundColor="#E5E7EB"
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* Privacy & Security Section */}
+        <View style={{ gap: 8, marginBottom: 24 }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
+            Privacy & Security
+          </Text>
+
+          <View style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 20,
+            overflow: 'hidden',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.06,
+            shadowRadius: 12,
+            elevation: 3,
+          }}>
+            {/* Privacy Policy */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}
+              onPress={() => Toast.show({ type: 'info', text1: 'Privacy Policy coming soon' })}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#D1FAE5', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
                   <Shield color="#10B981" size={20} />
                 </View>
                 <View>
-                  <Text className="text-base font-semibold text-gray-900">Privacy</Text>
-                  <Text className="text-xs text-gray-500">Data & security</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Privacy Policy</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>How we protect your data</Text>
+                </View>
+              </View>
+              <ChevronRight color="#9CA3AF" size={20} />
+            </TouchableOpacity>
+
+            {/* Terms of Service */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+              }}
+              onPress={() => Toast.show({ type: 'info', text1: 'Terms of Service coming soon' })}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#FEE2E2', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <FileText color="#EF4444" size={20} />
+                </View>
+                <View>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Terms of Service</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>View our terms</Text>
                 </View>
               </View>
               <ChevronRight color="#9CA3AF" size={20} />
@@ -240,36 +507,64 @@ export default function SettingsScreen() {
         </View>
 
         {/* Support Section */}
-        <View className="mb-6">
-          <Text className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 px-2">
+        <View style={{ gap: 8, marginBottom: 24 }}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
             Support
           </Text>
 
           <View style={{
-            backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.4)',
-            borderWidth: 1,
-            borderStyle: 'solid',
-            borderColor: 'rgba(255, 255, 255, 0.6)',
-            borderRadius: 24,
+            backgroundColor: '#FFFFFF',
+            borderRadius: 20,
             overflow: 'hidden',
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.08,
+            shadowOpacity: 0.06,
             shadowRadius: 12,
-            ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+            elevation: 3,
           }}>
+            {/* Design Playground */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}
+              onPress={() => router.push('/(tabs)/demo-nav')}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#DBEAFE', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                  <Palette color="#3B82F6" size={20} />
+                </View>
+                <View>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Design Playground</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>View navigation styles</Text>
+                </View>
+              </View>
+              <ChevronRight color="#9CA3AF" size={20} />
+            </TouchableOpacity>
+
             {/* Help */}
             <TouchableOpacity
-              className="flex-row items-center justify-between px-4 py-4"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+              }}
               onPress={() => Toast.show({ type: 'info', text1: 'Help center coming soon' })}
             >
-              <View className="flex-row items-center gap-3">
-                <View className="w-10 h-10 bg-purple-100 rounded-full items-center justify-center">
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 40, height: 40, backgroundColor: '#F3E8FF', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
                   <HelpCircle color="#A855F7" size={20} />
                 </View>
                 <View>
-                  <Text className="text-base font-semibold text-gray-900">Help & Support</Text>
-                  <Text className="text-xs text-gray-500">Get assistance</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Help & Support</Text>
+                  <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Get assistance</Text>
                 </View>
               </View>
               <ChevronRight color="#9CA3AF" size={20} />
@@ -280,30 +575,26 @@ export default function SettingsScreen() {
         {/* Sign Out Button */}
         <TouchableOpacity
           style={{
-            backgroundColor: Platform.OS === 'android' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.4)',
-            borderWidth: 1,
-            borderStyle: 'solid',
-            borderColor: 'rgba(239, 68, 68, 0.3)',
-            borderRadius: 24,
+            backgroundColor: '#FFFFFF',
+            borderRadius: 20,
             paddingHorizontal: 16,
             paddingVertical: 16,
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.08,
+            shadowOpacity: 0.06,
             shadowRadius: 12,
-            overflow: 'hidden',
-            ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+            elevation: 3,
           }}
           onPress={handleSignOut}
         >
-          <View className="flex-row items-center justify-center gap-3">
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
             <LogOut color="#EF4444" size={20} />
-            <Text className="text-base font-semibold text-red-600">Sign Out</Text>
+            <Text style={{ fontSize: 15, fontWeight: '600', color: '#EF4444' }}>Sign Out</Text>
           </View>
         </TouchableOpacity>
 
         {/* App Version */}
-        <Text className="text-xs text-gray-400 text-center mt-8">
+        <Text style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 16 }}>
           Courtster v1.0.0
         </Text>
       </ScrollView>

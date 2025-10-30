@@ -1,4 +1,4 @@
-import { View, Text, FlatList, TouchableOpacity, RefreshControl, TextInput, ScrollView, Modal, Animated } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, RefreshControl, TextInput, ScrollView, Modal, Animated, Platform, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -15,6 +15,8 @@ import {
   MoreHorizontal,
   Settings
 } from 'lucide-react-native';
+import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../config/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useState, useRef, useEffect } from 'react';
@@ -75,12 +77,20 @@ interface GameSession {
   game_time: string;
   duration_hours: number;
   created_at: string;
+  club_id: string | null;
+  club_name: string | null;
+  clubs?: {
+    id: string;
+    name: string;
+    logo_url: string | null;
+  } | null;
 }
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
 
   // State
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -109,7 +119,14 @@ export default function HomeScreen() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('game_sessions')
-        .select('*')
+        .select(`
+          *,
+          clubs:club_id (
+            id,
+            name,
+            logo_url
+          )
+        `)
         .eq('user_id', user!.id)
         .order('created_at', { ascending: false });
 
@@ -263,110 +280,124 @@ export default function HomeScreen() {
     // Compact mode rendering
     if (viewMode === 'compact') {
       return (
-        <View style={{
-          backgroundColor: 'rgba(255, 255, 255, 0.4)',
-          borderWidth: 1,
-          borderColor: 'rgba(255, 255, 255, 0.6)',
-          borderRadius: 16,
-          padding: 12,
-          marginBottom: 12,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.08,
-          shadowRadius: 12,
-          elevation: 3,
-          position: 'relative',
-        }}>
-          {/* Row 1: Name */}
-          <View className="mb-2">
-            <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => router.push(`/(tabs)/session/${item.id}`)}
+          style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 16,
+            padding: 16,
+            marginBottom: 12,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 1 },
+            shadowOpacity: 0.05,
+            shadowRadius: 8,
+            elevation: 2,
+            position: 'relative',
+          }}
+        >
+          {/* Row 1: Name + Status Badge */}
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: '#111827', flex: 1, marginRight: 8 }}>
               {item.name}
             </Text>
+            {/* Status Badge */}
+            <View
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: 10,
+                backgroundColor:
+                  currentStatus === 'completed' ? '#DCFCE7' :
+                  currentStatus === 'active' ? '#DBEAFE' :
+                  currentStatus === 'cancelled' ? '#FEE2E2' : '#F3F4F6',
+              }}
+            >
+              <Text style={{
+                fontSize: 10,
+                fontWeight: '600',
+                letterSpacing: 0.3,
+                color:
+                  currentStatus === 'completed' ? '#15803D' :
+                  currentStatus === 'active' ? '#1D4ED8' :
+                  currentStatus === 'cancelled' ? '#DC2626' : '#374151',
+              }}>
+                {currentStatus.toUpperCase()}
+              </Text>
+            </View>
           </View>
 
-          {/* Row 2: Sport - Type - Courts */}
-          <View className="flex-row items-center gap-2 mb-2">
+          {/* Row 2: Sport & Type */}
+          <View className="flex-row items-center gap-2 mb-3">
             <View className="flex-row items-center gap-1.5">
               {sport === 'padel' ? (
                 <PadelIcon color="#EA580C" size={14} />
               ) : (
                 <TennisIcon color="#16A34A" size={14} />
               )}
-              <Text style={{ fontSize: 12, fontWeight: '500', color: '#4B5563' }}>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#6B7280' }}>
                 {sport.charAt(0).toUpperCase() + sport.slice(1)}
               </Text>
             </View>
-            <Text style={{ fontSize: 12, color: '#9CA3AF' }}>-</Text>
-            <Text style={{ fontSize: 12, fontWeight: '500', color: '#4B5563' }}>
+            <Text style={{ fontSize: 13, color: '#D1D5DB' }}>•</Text>
+            <Text style={{ fontSize: 13, fontWeight: '500', color: '#6B7280' }}>
               {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
-            </Text>
-            <Text style={{ fontSize: 12, color: '#9CA3AF' }}>-</Text>
-            <Text style={{ fontSize: 12, fontWeight: '500', color: '#4B5563' }}>
-              {item.courts} {item.courts === 1 ? 'Court' : 'Courts'}
             </Text>
           </View>
 
-          {/* Row 3: Date and Time */}
+          {/* Row 3: Stats Pills and Date */}
           <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center gap-1.5 flex-1">
-              <Calendar color="#6B7280" size={11} />
-              <Text style={{ fontSize: 11, color: '#6B7280' }}>
-                {formatGameDateTime(item.game_date, item.game_time, item.duration_hours)}
-              </Text>
-            </View>
-
-            {/* Bottom Right: Triple Dot + Open Button */}
-            <View className="flex-row items-center gap-2">
-              {/* Triple Dot Menu */}
-              <TouchableOpacity
-                style={{
-                  width: 36,
-                  height: 36,
-                  backgroundColor: 'rgba(255, 255, 255, 0.4)',
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.4)',
-                  borderRadius: 12,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                onPress={() => setActiveDropdown(activeDropdown === item.id ? null : item.id)}
-              >
-                <MoreHorizontal color="#4B5563" size={18} />
-              </TouchableOpacity>
-
-              {/* Open Button - Red (2x Wider) */}
-              <TouchableOpacity
-                style={{
-                  width: 96,
-                  height: 36,
-                  backgroundColor: '#EF4444',
-                  borderRadius: 12,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  shadowColor: '#EF4444',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 4,
-                  elevation: 3,
-                }}
-                onPress={() => router.push(`/(tabs)/session/${item.id}`)}
-              >
-                <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>
-                  Open
+            {/* Pills and Date */}
+            <View className="flex-row flex-wrap gap-2 flex-1 items-center" style={{ marginRight: 12 }}>
+              <View style={{ backgroundColor: '#DBEAFE', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Users color="#1E40AF" size={11} />
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#1E40AF' }}>{playerCount}</Text>
+              </View>
+              <View style={{ backgroundColor: '#F3E8FF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#7C3AED' }}>
+                  {item.courts} {item.courts === 1 ? 'Court' : 'Courts'}
                 </Text>
-              </TouchableOpacity>
+              </View>
+              <View style={{ backgroundColor: '#FED7AA', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#C2410C' }}>{item.points_per_match} Pts</Text>
+              </View>
+              <View style={{ backgroundColor: '#F3F4F6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#374151' }}>R{item.current_round || 0}</Text>
+              </View>
+              <View className="flex-row items-center gap-1.5">
+                <Calendar color="#9CA3AF" size={12} />
+                <Text style={{ fontSize: 12, color: '#9CA3AF' }}>
+                  {formatGameDateTime(item.game_date, item.game_time, item.duration_hours)}
+                </Text>
+              </View>
             </View>
+
+            {/* Triple Dot Menu */}
+            <TouchableOpacity
+              style={{
+                width: 36,
+                height: 36,
+                backgroundColor: '#F3F4F6',
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onPress={(e) => {
+                e.stopPropagation();
+                setActiveDropdown(activeDropdown === item.id ? null : item.id);
+              }}
+            >
+              <MoreHorizontal color="#6B7280" size={18} />
+            </TouchableOpacity>
           </View>
 
           {/* Dropdown Menu */}
           {activeDropdown === item.id && (
             <View style={{
               position: 'absolute',
-              right: 12,
+              right: 16,
               bottom: 50,
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              borderWidth: 1,
-              borderColor: 'rgba(255, 255, 255, 0.95)',
+              backgroundColor: '#FFFFFF',
               borderRadius: 16,
               width: 200,
               shadowColor: '#000',
@@ -383,9 +414,12 @@ export default function HomeScreen() {
                     paddingHorizontal: 16,
                     paddingVertical: 14,
                     borderBottomWidth: 1,
-                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                    borderBottomColor: '#E5E7EB',
                   }}
-                  onPress={() => handleMarkCompleted(item.id)}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleMarkCompleted(item.id);
+                  }}
                 >
                   <Text style={{ fontSize: 15, fontWeight: '500', color: '#10B981' }}>
                     Mark as Completed
@@ -397,7 +431,10 @@ export default function HomeScreen() {
                   paddingHorizontal: 16,
                   paddingVertical: 14,
                 }}
-                onPress={() => handleDelete(item.id)}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleDelete(item.id);
+                }}
               >
                 <Text style={{ fontSize: 15, fontWeight: '500', color: '#EF4444' }}>
                   Delete Session
@@ -405,71 +442,91 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
           )}
-        </View>
+        </TouchableOpacity>
       );
     }
 
     // Cards mode rendering (original)
     return (
-      <View style={{
-        backgroundColor: 'rgba(255, 255, 255, 0.4)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.6)',
-        borderRadius: 24,
-        padding: 16,
-        marginBottom: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-        elevation: 3,
-      }}>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => router.push(`/(tabs)/session/${item.id}`)}
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 24,
+          padding: 16,
+          marginBottom: 16,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 8,
+          elevation: 2,
+        }}
+      >
         {/* Header with Status */}
         <View className="flex-row items-start justify-between mb-3">
           <View className="flex-1">
-            <Text style={{ fontSize: 17, fontWeight: '700', color: '#111827', marginBottom: 6 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 6 }}>
               {item.name}
             </Text>
-            <View className="flex-row items-center gap-2">
+            <View className="flex-row items-center gap-2 mb-2">
               {sport === 'padel' ? (
                 <PadelIcon color="#EA580C" size={14} />
               ) : (
                 <TennisIcon color="#16A34A" size={14} />
               )}
-              <Text style={{ fontSize: 13, fontWeight: '500', color: '#4B5563' }}>
-                {sport.charAt(0).toUpperCase() + sport.slice(1)} -{' '}
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#6B7280' }}>
+                {sport.charAt(0).toUpperCase() + sport.slice(1)}
+              </Text>
+              <Text style={{ fontSize: 13, color: '#D1D5DB' }}>•</Text>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#6B7280' }}>
                 {item.type.charAt(0).toUpperCase() + item.type.slice(1)}
               </Text>
             </View>
+            {/* Club Display */}
+            {item.clubs && (
+              <View className="flex-row items-center gap-2">
+                {item.clubs.logo_url ? (
+                  <Image
+                    source={{ uri: item.clubs.logo_url }}
+                    style={{ width: 16, height: 16, borderRadius: 8 }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: 8,
+                    backgroundColor: '#F43F5E',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Text style={{ fontSize: 8, fontWeight: '700', color: '#FFFFFF' }}>
+                      {item.clubs.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <Text style={{ fontSize: 12, fontWeight: '500', color: '#9CA3AF' }}>
+                  {item.clubs.name}
+                </Text>
+              </View>
+            )}
           </View>
 
-          {/* Status Pill - iOS 18 Glassmorphism */}
+          {/* Status Pill */}
           <View
             style={{
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 14,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: 12,
               backgroundColor:
-                currentStatus === 'completed' ? 'rgba(34, 197, 94, 0.15)' :
-                currentStatus === 'active' ? 'rgba(59, 130, 246, 0.15)' :
-                currentStatus === 'cancelled' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(107, 114, 128, 0.15)',
-              borderWidth: 1,
-              borderColor:
-                currentStatus === 'completed' ? 'rgba(34, 197, 94, 0.3)' :
-                currentStatus === 'active' ? 'rgba(59, 130, 246, 0.3)' :
-                currentStatus === 'cancelled' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255, 255, 255, 0.4)',
-              shadowColor:
-                currentStatus === 'completed' ? '#22C55E' :
-                currentStatus === 'active' ? '#3B82F6' :
-                currentStatus === 'cancelled' ? '#EF4444' : '#6B7280',
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.1,
-              shadowRadius: 3,
-              elevation: 2,
+                currentStatus === 'completed' ? '#DCFCE7' :
+                currentStatus === 'active' ? '#DBEAFE' :
+                currentStatus === 'cancelled' ? '#FEE2E2' : '#F3F4F6',
             }}
           >
             <Text style={{
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: '600',
               letterSpacing: 0.3,
               color:
@@ -482,48 +539,49 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Pills */}
-        <View className="flex-row flex-wrap gap-2 mb-3">
-          <View style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.25)' }}>
-            <Users color="#1E40AF" size={11} />
-            <Text style={{ fontSize: 11, fontWeight: '600', color: '#1E40AF' }}>{playerCount}</Text>
+        {/* Pills and Date Row */}
+        <View className="flex-row items-center justify-between">
+          {/* Pills and Date */}
+          <View className="flex-row flex-wrap gap-2 flex-1 items-center" style={{ marginRight: 12 }}>
+            <View style={{ backgroundColor: '#DBEAFE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Users color="#1E40AF" size={11} />
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#1E40AF' }}>{playerCount}</Text>
+            </View>
+            <View style={{ backgroundColor: '#F3E8FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#7C3AED' }}>
+                {item.courts} {item.courts === 1 ? 'Court' : 'Courts'}
+              </Text>
+            </View>
+            <View style={{ backgroundColor: '#FED7AA', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#C2410C' }}>{item.points_per_match} Pts</Text>
+            </View>
+            <View style={{ backgroundColor: '#F3F4F6', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: '#374151' }}>R{item.current_round || 0}</Text>
+            </View>
+            <View className="flex-row items-center gap-1.5">
+              <Calendar color="#9CA3AF" size={12} />
+              <Text style={{ fontSize: 12, color: '#9CA3AF' }}>
+                {formatGameDateTime(item.game_date, item.game_time, item.duration_hours)}
+              </Text>
+            </View>
           </View>
-          <View style={{ backgroundColor: 'rgba(168, 85, 247, 0.12)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(168, 85, 247, 0.25)' }}>
-            <Text style={{ fontSize: 11, fontWeight: '600', color: '#7C3AED' }}>
-              {item.courts} {item.courts === 1 ? 'Court' : 'Courts'}
-            </Text>
-          </View>
-          <View style={{ backgroundColor: 'rgba(249, 115, 22, 0.12)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(249, 115, 22, 0.25)' }}>
-            <Text style={{ fontSize: 11, fontWeight: '600', color: '#C2410C' }}>{item.points_per_match} Pts</Text>
-          </View>
-          <View style={{ backgroundColor: 'rgba(107, 114, 128, 0.12)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(107, 114, 128, 0.25)' }}>
-            <Text style={{ fontSize: 11, fontWeight: '600', color: '#374151' }}>R{item.current_round || 0}</Text>
-          </View>
-        </View>
 
-        {/* Date and Time */}
-        <View className="mb-4 flex-row items-center gap-2">
-          <Calendar color="#6B7280" size={14} />
-          <Text style={{ fontSize: 13, color: '#6B7280', flex: 1 }}>
-            {formatGameDateTime(item.game_date, item.game_time, item.duration_hours)}
-          </Text>
-        </View>
-
-        {/* Action Buttons */}
-        <View className="flex-row gap-2">
+          {/* Triple Dot Menu */}
           <TouchableOpacity
-            className="flex-1 bg-gradient-to-r from-rose-500 to-rose-600 rounded-2xl py-3 px-4"
-            style={{ backgroundColor: '#F43F5E' }}
-            onPress={() => router.push(`/(tabs)/session/${item.id}`)}
+            style={{
+              width: 36,
+              height: 36,
+              backgroundColor: '#F3F4F6',
+              borderRadius: 12,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onPress={(e) => {
+              e.stopPropagation();
+              setActiveDropdown(activeDropdown === item.id ? null : item.id);
+            }}
           >
-            <Text className="text-white font-medium text-sm text-center">Open Session</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            className="w-12 h-12 bg-white/40 border border-white/40 rounded-2xl items-center justify-center"
-            onPress={() => setActiveDropdown(activeDropdown === item.id ? null : item.id)}
-          >
-            <MoreHorizontal color="#4B5563" size={20} />
+            <MoreHorizontal color="#6B7280" size={18} />
           </TouchableOpacity>
         </View>
 
@@ -531,11 +589,9 @@ export default function HomeScreen() {
         {activeDropdown === item.id && (
           <View style={{
             position: 'absolute',
-            right: 24,
-            bottom: 80,
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderWidth: 1,
-            borderColor: 'rgba(255, 255, 255, 0.95)',
+            right: 16,
+            bottom: 50,
+            backgroundColor: '#FFFFFF',
             borderRadius: 16,
             width: 200,
             shadowColor: '#000',
@@ -552,9 +608,12 @@ export default function HomeScreen() {
                   paddingHorizontal: 16,
                   paddingVertical: 14,
                   borderBottomWidth: 1,
-                  borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                  borderBottomColor: '#E5E7EB',
                 }}
-                onPress={() => handleMarkCompleted(item.id)}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleMarkCompleted(item.id);
+                }}
               >
                 <Text style={{ fontSize: 15, fontWeight: '500', color: '#10B981' }}>
                   Mark as Completed
@@ -566,7 +625,10 @@ export default function HomeScreen() {
                 paddingHorizontal: 16,
                 paddingVertical: 14,
               }}
-              onPress={() => handleDelete(item.id)}
+              onPress={(e) => {
+                e.stopPropagation();
+                handleDelete(item.id);
+              }}
             >
               <Text style={{ fontSize: 15, fontWeight: '500', color: '#EF4444' }}>
                 Delete Session
@@ -574,7 +636,7 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         )}
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -700,10 +762,99 @@ export default function HomeScreen() {
         />
       </View>
 
+      {/* Fixed Header */}
+      <View
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 100,
+          paddingTop: insets.top,
+        }}
+      >
+        {Platform.OS === 'ios' ? (
+          <>
+            <BlurView
+              intensity={80}
+              tint="light"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+              }}
+            />
+            <View
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: '#FFFFFF',
+              }}
+            />
+          </>
+        ) : (
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: '#FFFFFF',
+            }}
+          />
+        )}
+
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 16,
+            paddingVertical: 16,
+            borderBottomWidth: 1,
+            borderBottomColor: '#F3F4F6',
+          }}
+        >
+          <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>
+            Courtster
+          </Text>
+
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/create-session')}
+            style={{
+              backgroundColor: '#EF4444',
+              borderRadius: 12,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              shadowColor: '#EF4444',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.3,
+              shadowRadius: 4,
+              elevation: 4,
+            }}
+          >
+            <Plus color="#FFFFFF" size={18} strokeWidth={2.5} />
+            <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>
+              Create
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* Main Content */}
       <ScrollView
-        className="flex-1 px-4"
-        style={{ paddingTop: 60 }}
+        className="flex-1"
+        style={{ paddingTop: insets.top + 64 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16 }}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -713,7 +864,7 @@ export default function HomeScreen() {
         }
       >
         {/* Search Bar - Full Width */}
-        <View className="mb-3">
+        <View style={{ marginBottom: 16 }}>
           <View className="relative">
             <View className="absolute left-3.5 top-1/2 z-10" style={{ marginTop: -8 }}>
               <Search color="#9CA3AF" size={16} />
@@ -723,9 +874,7 @@ export default function HomeScreen() {
               value={searchQuery}
               onChangeText={setSearchQuery}
               style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.6)',
-                borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.8)',
+                backgroundColor: '#FFFFFF',
                 borderRadius: 16,
                 paddingLeft: 40,
                 paddingRight: 16,
@@ -733,9 +882,9 @@ export default function HomeScreen() {
                 fontSize: 14,
                 color: '#111827',
                 shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
+                shadowOffset: { width: 0, height: 1 },
                 shadowOpacity: 0.05,
-                shadowRadius: 4,
+                shadowRadius: 8,
                 elevation: 2,
               }}
               placeholderTextColor="#9CA3AF"
@@ -750,9 +899,7 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={{
                 width: '100%',
-                backgroundColor: showFilters ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.6)',
-                borderWidth: 1,
-                borderColor: showFilters ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255, 255, 255, 0.8)',
+                backgroundColor: showFilters ? '#FEE2E2' : '#FFFFFF',
                 borderRadius: 16,
                 paddingHorizontal: 12,
                 paddingVertical: 12,
@@ -761,9 +908,9 @@ export default function HomeScreen() {
                 justifyContent: 'center',
                 gap: 8,
                 shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
+                shadowOffset: { width: 0, height: 1 },
                 shadowOpacity: 0.05,
-                shadowRadius: 4,
+                shadowRadius: 8,
                 elevation: 2,
               }}
               onPress={() => setShowFilters(!showFilters)}
@@ -780,9 +927,7 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={{
                 width: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.6)',
-                borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.8)',
+                backgroundColor: '#FFFFFF',
                 borderRadius: 16,
                 paddingHorizontal: 12,
                 paddingVertical: 12,
@@ -791,9 +936,9 @@ export default function HomeScreen() {
                 justifyContent: 'center',
                 gap: 8,
                 shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
+                shadowOffset: { width: 0, height: 1 },
                 shadowOpacity: 0.05,
-                shadowRadius: 4,
+                shadowRadius: 8,
                 elevation: 2,
               }}
               onPress={() => setSortDropdownOpen(!sortDropdownOpen)}
@@ -813,9 +958,7 @@ export default function HomeScreen() {
                 left: 0,
                 right: 0,
                 width: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.95)',
+                backgroundColor: '#FFFFFF',
                 borderRadius: 16,
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 4 },
@@ -830,8 +973,8 @@ export default function HomeScreen() {
                     paddingHorizontal: 16,
                     paddingVertical: 14,
                     borderBottomWidth: 1,
-                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
-                    backgroundColor: sortBy === 'creation_date' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                    borderBottomColor: '#E5E7EB',
+                    backgroundColor: sortBy === 'creation_date' ? '#DBEAFE' : '#FFFFFF',
                   }}
                   onPress={() => {
                     setSortBy('creation_date');
@@ -847,8 +990,8 @@ export default function HomeScreen() {
                     paddingHorizontal: 16,
                     paddingVertical: 14,
                     borderBottomWidth: 1,
-                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
-                    backgroundColor: sortBy === 'alphabetical' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                    borderBottomColor: '#E5E7EB',
+                    backgroundColor: sortBy === 'alphabetical' ? '#DBEAFE' : '#FFFFFF',
                   }}
                   onPress={() => {
                     setSortBy('alphabetical');
@@ -863,7 +1006,7 @@ export default function HomeScreen() {
                   style={{
                     paddingHorizontal: 16,
                     paddingVertical: 14,
-                    backgroundColor: sortBy === 'game_date' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                    backgroundColor: sortBy === 'game_date' ? '#DBEAFE' : '#FFFFFF',
                   }}
                   onPress={() => {
                     setSortBy('game_date');
@@ -883,9 +1026,7 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={{
                 width: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.6)',
-                borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.8)',
+                backgroundColor: '#FFFFFF',
                 borderRadius: 16,
                 paddingHorizontal: 12,
                 paddingVertical: 12,
@@ -894,9 +1035,9 @@ export default function HomeScreen() {
                 justifyContent: 'center',
                 gap: 8,
                 shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
+                shadowOffset: { width: 0, height: 1 },
                 shadowOpacity: 0.05,
-                shadowRadius: 4,
+                shadowRadius: 8,
                 elevation: 2,
               }}
               onPress={() => setViewDropdownOpen(!viewDropdownOpen)}
@@ -915,9 +1056,7 @@ export default function HomeScreen() {
                 left: 0,
                 right: 0,
                 width: '100%',
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                borderWidth: 1,
-                borderColor: 'rgba(255, 255, 255, 0.95)',
+                backgroundColor: '#FFFFFF',
                 borderRadius: 16,
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 4 },
@@ -932,8 +1071,8 @@ export default function HomeScreen() {
                     paddingHorizontal: 16,
                     paddingVertical: 14,
                     borderBottomWidth: 1,
-                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
-                    backgroundColor: viewMode === 'cards' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                    borderBottomColor: '#E5E7EB',
+                    backgroundColor: viewMode === 'cards' ? '#DBEAFE' : '#FFFFFF',
                   }}
                   onPress={() => {
                     setViewMode('cards');
@@ -948,7 +1087,7 @@ export default function HomeScreen() {
                   style={{
                     paddingHorizontal: 16,
                     paddingVertical: 14,
-                    backgroundColor: viewMode === 'compact' ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                    backgroundColor: viewMode === 'compact' ? '#DBEAFE' : '#FFFFFF',
                   }}
                   onPress={() => {
                     setViewMode('compact');
@@ -967,17 +1106,15 @@ export default function HomeScreen() {
         {/* Collapsible Filters */}
         {showFilters && (
           <View style={{
-            backgroundColor: 'rgba(255, 255, 255, 0.5)',
-            borderWidth: 1,
-            borderColor: 'rgba(255, 255, 255, 0.8)',
+            backgroundColor: '#FFFFFF',
             borderRadius: 24,
             padding: 16,
             marginBottom: 24,
             shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
+            shadowOffset: { width: 0, height: 1 },
             shadowOpacity: 0.05,
             shadowRadius: 8,
-            elevation: 3,
+            elevation: 2,
           }}>
             <View className="flex-row flex-wrap gap-4">
               {/* Status Filter */}
@@ -985,9 +1122,7 @@ export default function HomeScreen() {
                 <Text className="text-xs font-semibold text-gray-700 mb-1.5">Status</Text>
                 <TouchableOpacity
                   style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                    backgroundColor: '#F9FAFB',
                     borderRadius: 12,
                     paddingHorizontal: 12,
                     paddingVertical: 10,
@@ -1021,9 +1156,7 @@ export default function HomeScreen() {
                 <Text className="text-xs font-semibold text-gray-700 mb-1.5">Sport</Text>
                 <TouchableOpacity
                   style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-                    borderWidth: 1,
-                    borderColor: 'rgba(255, 255, 255, 0.9)',
+                    backgroundColor: '#F9FAFB',
                     borderRadius: 12,
                     paddingHorizontal: 12,
                     paddingVertical: 10,
@@ -1048,7 +1181,7 @@ export default function HomeScreen() {
               <View className="flex-1 justify-end">
                 <TouchableOpacity
                   style={{
-                    backgroundColor: 'rgba(107, 114, 128, 0.8)',
+                    backgroundColor: '#6B7280',
                     borderRadius: 12,
                     paddingHorizontal: 16,
                     paddingVertical: 10,
@@ -1072,14 +1205,33 @@ export default function HomeScreen() {
         {/* Sessions List */}
         {isLoading ? (
           <View className="text-center py-12">
-            <View className="bg-white/20 backdrop-blur-xl border border-white/40 rounded-3xl p-8 shadow-lg self-center">
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 24,
+              padding: 32,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.08,
+              shadowRadius: 12,
+              elevation: 3,
+              alignSelf: 'center',
+            }}>
               <View className="w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full mx-auto mb-4" />
               <Text className="text-gray-800">Loading sessions...</Text>
             </View>
           </View>
         ) : filteredAndSortedSessions.length === 0 ? (
           <View className="text-center py-12">
-            <View className="bg-white/20 backdrop-blur-xl border border-white/40 rounded-3xl p-8 shadow-lg">
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 24,
+              padding: 32,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.08,
+              shadowRadius: 12,
+              elevation: 3,
+            }}>
               <View
                 className="w-16 h-16 rounded-2xl items-center justify-center mx-auto mb-4 shadow-md"
                 style={{ backgroundColor: '#DC2626' }}
@@ -1103,7 +1255,7 @@ export default function HomeScreen() {
             </View>
           </View>
         ) : (
-          <View style={{ paddingBottom: 120 }}>
+          <View style={{ paddingBottom: Platform.OS === 'ios' ? 100 : insets.bottom + 120 }}>
             {filteredAndSortedSessions.map((item) => (
               <View key={item.id}>
                 {renderSession({ item })}
@@ -1120,8 +1272,19 @@ export default function HomeScreen() {
         animationType="fade"
         onRequestClose={() => setDeleteModalOpen(false)}
       >
-        <View className="flex-1 bg-black/40 items-center justify-center p-4">
-          <View className="bg-white/30 backdrop-blur-xl border border-white/40 rounded-3xl shadow-2xl p-6 w-full max-w-sm">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.4)', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <View style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 24,
+            padding: 24,
+            width: '100%',
+            maxWidth: 400,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.2,
+            shadowRadius: 16,
+            elevation: 8,
+          }}>
             <View className="items-center">
               <View className="w-12 h-12 bg-red-100 rounded-full items-center justify-center mb-4">
                 <X color="#DC2626" size={24} />
@@ -1132,7 +1295,13 @@ export default function HomeScreen() {
               </Text>
               <View className="flex-row gap-3 w-full">
                 <TouchableOpacity
-                  className="flex-1 bg-white/70 border border-gray-200/50 py-2.5 px-4 rounded-2xl"
+                  style={{
+                    flex: 1,
+                    backgroundColor: '#F3F4F6',
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                    borderRadius: 16,
+                  }}
                   onPress={() => {
                     setDeleteModalOpen(false);
                     setSessionToDelete(null);
@@ -1170,9 +1339,7 @@ export default function HomeScreen() {
             position: 'absolute',
             left: 16,
             top: 260,
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderWidth: 1,
-            borderColor: 'rgba(255, 255, 255, 0.95)',
+            backgroundColor: '#FFFFFF',
             borderRadius: 16,
             width: 160,
             shadowColor: '#000',
@@ -1193,7 +1360,7 @@ export default function HomeScreen() {
                   gap: 8,
                   ...(index < 3 && {
                     borderBottomWidth: 1,
-                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                    borderBottomColor: '#E5E7EB',
                   }),
                 }}
                 onPress={() => {
@@ -1237,9 +1404,7 @@ export default function HomeScreen() {
             position: 'absolute',
             left: 192,
             top: 260,
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderWidth: 1,
-            borderColor: 'rgba(255, 255, 255, 0.95)',
+            backgroundColor: '#FFFFFF',
             borderRadius: 16,
             width: 160,
             shadowColor: '#000',
@@ -1260,7 +1425,7 @@ export default function HomeScreen() {
                   gap: 8,
                   ...(index < 2 && {
                     borderBottomWidth: 1,
-                    borderBottomColor: 'rgba(229, 231, 235, 0.5)',
+                    borderBottomColor: '#E5E7EB',
                   }),
                 }}
                 onPress={() => {
