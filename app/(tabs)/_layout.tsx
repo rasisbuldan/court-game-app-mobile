@@ -54,6 +54,11 @@ export default function TabsLayout() {
             backgroundColor: '#FFFFFF',
           }} />
         ),
+        // Platform-specific screen animations
+        animation: Platform.OS === 'ios' ? 'shift' : 'fade',
+        // Enable swipe gestures
+        gestureEnabled: true,
+        gestureDirection: 'horizontal',
       }}
     >
       <Tabs.Screen
@@ -121,6 +126,8 @@ export default function TabsLayout() {
         options={{
           href: null, // Hide from tab bar
           presentation: 'modal',
+          gestureEnabled: true,
+          gestureDirection: 'vertical',
         }}
       />
       <Tabs.Screen
@@ -128,6 +135,8 @@ export default function TabsLayout() {
         options={{
           href: null, // Hide from tab bar
           presentation: 'modal',
+          gestureEnabled: true,
+          gestureDirection: 'vertical',
         }}
       />
       <Tabs.Screen
@@ -135,6 +144,9 @@ export default function TabsLayout() {
         options={{
           href: null, // Hide from tab bar
           tabBarStyle: { display: 'none' }, // Hide entire tab bar on session screen
+          animation: Platform.OS === 'ios' ? 'shift' : 'fade',
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
         }}
       />
       <Tabs.Screen
@@ -142,12 +154,17 @@ export default function TabsLayout() {
         options={{
           href: null, // Hide from tab bar
           presentation: 'modal',
+          gestureEnabled: true,
+          gestureDirection: 'vertical',
         }}
       />
       <Tabs.Screen
         name="club-detail"
         options={{
           href: null, // Hide from tab bar
+          animation: Platform.OS === 'ios' ? 'shift' : 'fade',
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
         }}
       />
       <Tabs.Screen
@@ -176,6 +193,45 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="layout-previews"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="demo"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="head-to-head-demo"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="partnerships-demo"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="background-demo"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="subscription"
+        options={{
+          href: null, // Hide from tab bar
+          animation: Platform.OS === 'ios' ? 'shift' : 'fade',
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
+        }}
+      />
+      <Tabs.Screen
+        name="subscription-layouts-demo"
         options={{
           href: null, // Hide from tab bar
         }}

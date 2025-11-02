@@ -8,7 +8,13 @@ export const queryClient = new QueryClient({
       // React Query options optimized for mobile
       gcTime: 1000 * 60 * 60 * 24, // 24 hours (formerly cacheTime)
       staleTime: 1000 * 60 * 5, // 5 minutes
-      retry: 2,
+      retry: (failureCount, error) => {
+        // Don't retry on CancelledError (happens during hot reload)
+        if (error instanceof Error && error.message.includes('CancelledError')) {
+          return false;
+        }
+        return failureCount < 2;
+      },
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
       // Don't retry cancelled queries on mount
@@ -25,12 +31,16 @@ const STORAGE_KEY = 'COURTSTER_QUERY_CACHE';
 export const asyncStoragePersister: Persister = {
   persistClient: async (client: PersistedClient) => {
     try {
-      // Filter out queries that are in a pending/fetching state
+      // Filter out queries that are in a pending/fetching state or have errors
       const filteredClient = {
         ...client,
         clientState: {
           ...client.clientState,
           queries: client.clientState.queries.filter((query: any) => {
+            // Don't persist queries with CancelledError
+            if (query.state.error && query.state.error.message?.includes('CancelledError')) {
+              return false;
+            }
             // Only persist queries that are not currently fetching
             return query.state.status !== 'pending' && !query.state.fetchStatus || query.state.fetchStatus === 'idle';
           }),

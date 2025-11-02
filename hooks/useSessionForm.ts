@@ -3,7 +3,8 @@ import { useState, useCallback } from 'react';
 export type Sport = 'padel' | 'tennis';
 export type GameType = 'mexicano' | 'americano' | 'fixed_partner' | 'mixed_mexicano';
 export type PlayMode = 'sequential' | 'parallel';
-export type ScoringMode = 'points' | 'first_to' | 'first_to_games' | 'total_games';
+// Database constraint: scoring_mode must be 'points' | 'first_to' | 'total_games'
+export type ScoringMode = 'points' | 'first_to' | 'total_games';
 export type MatchupPreference = 'any' | 'mixed_only' | 'randomized_modes';
 
 export interface SessionFormData {
@@ -23,10 +24,9 @@ export interface SessionFormData {
 }
 
 const SCORING_MODE_DEFAULTS: Record<ScoringMode, number> = {
-  points: 21,
-  first_to: 11,
-  first_to_games: 6,
-  total_games: 6,
+  points: 21,        // Padel: first to 21 points
+  first_to: 6,       // Tennis: first to 6 games (1 set)
+  total_games: 6,    // Total games mode: play 6 games
 };
 
 export function useSessionForm() {
@@ -61,13 +61,13 @@ export function useSessionForm() {
 
         // Sport change: Reset scoring mode and points
         if (field === 'sport') {
-          // Tennis doesn't support 'points' or 'first_to' modes
-          if (value === 'tennis' && (prev.scoring_mode === 'points' || prev.scoring_mode === 'first_to')) {
-            next.scoring_mode = 'first_to_games';
-            next.points_per_match = SCORING_MODE_DEFAULTS.first_to_games;
+          // Tennis uses 'first_to' mode by default (first to 6 games)
+          if (value === 'tennis' && prev.scoring_mode === 'points') {
+            next.scoring_mode = 'first_to';
+            next.points_per_match = SCORING_MODE_DEFAULTS.first_to;
           }
           // Padel defaults to 'points' mode
-          if (value === 'padel' && (prev.scoring_mode === 'first_to_games' || prev.scoring_mode === 'total_games')) {
+          if (value === 'padel' && (prev.scoring_mode === 'first_to' || prev.scoring_mode === 'total_games')) {
             next.scoring_mode = 'points';
             next.points_per_match = SCORING_MODE_DEFAULTS.points;
           }

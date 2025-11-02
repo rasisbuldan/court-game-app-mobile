@@ -11,25 +11,19 @@ interface ScoringModeOption {
 const SCORING_MODES: ScoringModeOption[] = [
   {
     value: 'points',
-    label: 'Total Points',
-    description: 'Race to X total points',
+    label: 'Points Mode',
+    description: 'First team to reach X points wins (e.g., first to 21)',
     excludeForTennis: true,
+  },
+  {
+    value: 'first_to',
+    label: 'First to X Games',
+    description: 'First team to win X games wins the match. Each game uses points scoring (e.g., first to 6 games)',
   },
   {
     value: 'total_games',
     label: 'Total Games',
-    description: 'Play X games total',
-  },
-  {
-    value: 'first_to',
-    label: 'First to X Points',
-    description: 'First team to reach X points wins',
-    excludeForTennis: true,
-  },
-  {
-    value: 'first_to_games',
-    label: 'First to X Games',
-    description: 'First team to win X games',
+    description: 'Play X total games, highest score wins (e.g., play 6 games)',
   },
 ];
 
@@ -62,9 +56,9 @@ export function ScoringModeSelector({
             disabled={disabled}
             activeOpacity={0.7}
             style={{
-              backgroundColor: isSelected ? '#EF4444' : 'rgba(255, 255, 255, 0.9)',
+              backgroundColor: isSelected ? '#EF4444' : '#FFFFFF',
               borderWidth: 1,
-              borderColor: isSelected ? '#EF4444' : 'rgba(209, 213, 219, 0.5)',
+              borderColor: isSelected ? '#EF4444' : '#D1D5DB',
               borderRadius: 14,
               padding: 16,
               shadowColor: isSelected ? '#EF4444' : '#000',
@@ -76,8 +70,8 @@ export function ScoringModeSelector({
           >
             <Text
               style={{
-                fontSize: 15,
-                fontWeight: '700',
+                fontSize: 14,
+                fontWeight: '600',
                 color: isSelected ? '#FFFFFF' : '#111827',
                 marginBottom: 4,
               }}
@@ -86,9 +80,9 @@ export function ScoringModeSelector({
             </Text>
             <Text
               style={{
-                fontSize: 13,
-                color: isSelected ? 'rgba(255, 255, 255, 0.9)' : '#6B7280',
-                lineHeight: 18,
+                fontSize: 12,
+                color: isSelected ? '#FFFFFF' : '#6B7280',
+                lineHeight: 17,
               }}
             >
               {mode.description}

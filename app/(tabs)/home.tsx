@@ -640,86 +640,158 @@ export default function HomeScreen() {
   };
 
   return (
-    <View className="flex-1 bg-gray-50">
-      {/* Glassmorphic Background Blobs */}
+    <View className="flex-1" style={{ backgroundColor: '#FAFAFA' }}>
+      {/* Mesh Gradient Background - Option 4 (Premium) */}
       <View className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Top left - Rose */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 380,
-            height: 380,
-            top: -100,
-            left: -120,
-            backgroundColor: '#FCE4EC',
-            opacity: 0.3,
-          }}
-        />
-
-        {/* Top right - Slate blue */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 320,
-            height: 320,
-            top: 60,
-            right: -100,
-            backgroundColor: '#E2E8F0',
-            opacity: 0.35,
-          }}
-        />
-
-        {/* Middle left - Soft purple */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 280,
-            height: 280,
-            top: 400,
-            left: -80,
-            backgroundColor: '#F3E8FF',
-            opacity: 0.25,
-          }}
-        />
-
-        {/* Middle right - Light peach */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 240,
-            height: 240,
-            top: 500,
-            right: -60,
-            backgroundColor: '#FED7AA',
-            opacity: 0.2,
-          }}
-        />
-
-        {/* Center - Subtle grey */}
-        <View
-          className="absolute rounded-full"
-          style={{
-            width: 200,
-            height: 200,
-            top: 300,
-            left: 100,
-            backgroundColor: '#F5F5F5',
-            opacity: 0.3,
-          }}
-        />
-
-        {/* Lower middle - Light cyan */}
+        {/* Top left - Rose/Peach mesh */}
         <View
           className="absolute rounded-full"
           style={{
             width: 300,
             height: 300,
-            top: 700,
-            left: 50,
-            backgroundColor: '#CFFAFE',
-            opacity: 0.25,
+            top: -100,
+            left: -100,
+            backgroundColor: '#FEE2E2',
+            opacity: 0.6,
           }}
-        />
+        >
+          <View
+            className="absolute rounded-full"
+            style={{
+              width: 210,
+              height: 210,
+              top: 45,
+              left: 45,
+              backgroundColor: '#FED7AA',
+              opacity: 0.3,
+            }}
+          />
+        </View>
+
+        {/* Top right - Blue mesh */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 280,
+            height: 280,
+            top: 50,
+            right: -80,
+            backgroundColor: '#DBEAFE',
+            opacity: 0.5,
+          }}
+        >
+          <View
+            className="absolute rounded-full"
+            style={{
+              width: 168,
+              height: 168,
+              top: 56,
+            left: 56,
+              backgroundColor: '#E0E7FF',
+              opacity: 0.4,
+            }}
+          />
+        </View>
+
+        {/* Middle left - Green mesh */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 240,
+            height: 240,
+            top: 380,
+            left: -70,
+            backgroundColor: '#D1FAE5',
+            opacity: 0.45,
+          }}
+        >
+          <View
+            className="absolute rounded-full"
+            style={{
+              width: 168,
+              height: 168,
+              top: 36,
+              left: 36,
+              backgroundColor: '#A7F3D0',
+              opacity: 0.35,
+            }}
+          />
+        </View>
+
+        {/* Middle right - Purple mesh */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 260,
+            height: 260,
+            top: 420,
+            right: -70,
+            backgroundColor: '#F3E8FF',
+            opacity: 0.4,
+          }}
+        >
+          <View
+            className="absolute rounded-full"
+            style={{
+              width: 156,
+              height: 156,
+              top: 52,
+              left: 52,
+              backgroundColor: '#E9D5FF',
+              opacity: 0.3,
+            }}
+          />
+        </View>
+
+        {/* Lower middle - Cyan mesh */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 220,
+            height: 220,
+            top: 680,
+            left: 60,
+            backgroundColor: '#D1FAE5',
+            opacity: 0.4,
+          }}
+        >
+          <View
+            className="absolute rounded-full"
+            style={{
+              width: 154,
+              height: 154,
+              top: 33,
+              left: 33,
+              backgroundColor: '#A7F3D0',
+              opacity: 0.3,
+            }}
+          />
+        </View>
+
+        {/* Bottom right - Amber mesh */}
+        <View
+          className="absolute rounded-full"
+          style={{
+            width: 200,
+            height: 200,
+            bottom: -60,
+            right: -50,
+            backgroundColor: '#FEF3C7',
+            opacity: 0.45,
+          }}
+        >
+          <View
+            className="absolute rounded-full"
+            style={{
+              width: 140,
+              height: 140,
+              top: 30,
+              left: 30,
+              backgroundColor: '#FDE68A',
+              opacity: 0.25,
+            }}
+          />
+        </View>
 
         {/* Bottom left - Warm grey */}
         <View

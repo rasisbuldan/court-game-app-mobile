@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../config/supabase';
 import { Database } from '@court-game/shared/types/database.types';
 import Toast from 'react-native-toast-message';
+import { Logger } from '../utils/logger';
 
 type Club = Database['public']['Tables']['clubs']['Row'];
 type ClubInsert = Database['public']['Tables']['clubs']['Insert'];
@@ -114,50 +115,62 @@ export function useCreateClub() {
 
   return useMutation({
     mutationFn: async (params: CreateClubParams) => {
-      console.log('[useCreateClub] mutationFn called with params:', params);
+      Logger.debug('useCreateClub: Starting club creation', params);
 
       // Check if user has reached the 3-club limit
-      console.log('[useCreateClub] Checking club count limit...');
       const { count, error: countError } = await supabase
         .from('clubs')
         .select('*', { count: 'exact', head: true })
         .eq('owner_id', params.owner_id);
 
-      console.log('[useCreateClub] Club count:', count, 'Error:', countError);
+      Logger.debug('useCreateClub: Club count check', { count, error: countError });
 
       if (countError) {
-        console.error('[useCreateClub] Count error:', countError);
+        Logger.error('useCreateClub: Failed to check club count', countError as Error, {
+          userId: params.owner_id,
+          action: 'create_club_count_check',
+        });
         throw countError;
       }
 
       if (count !== null && count >= 3) {
-        console.log('[useCreateClub] Club limit reached');
+        Logger.info('useCreateClub: Club limit reached', {
+          userId: params.owner_id,
+          action: 'create_club_limit_reached',
+          metadata: { currentCount: count },
+        });
         throw new Error('You can only create up to 3 clubs');
       }
 
       // Check if club name is already taken (case-insensitive)
-      console.log('[useCreateClub] Checking if club name is taken...');
       const { data: existingClub, error: nameCheckError } = await supabase
         .from('clubs')
         .select('id')
         .ilike('name', params.name)
         .single();
 
-      console.log('[useCreateClub] Existing club:', existingClub, 'Error:', nameCheckError);
+      Logger.debug('useCreateClub: Name availability check', { existingClub, error: nameCheckError });
 
       if (nameCheckError && nameCheckError.code !== 'PGRST116') {
         // PGRST116 = no rows returned (name available)
-        console.error('[useCreateClub] Name check error:', nameCheckError);
+        Logger.error('useCreateClub: Name check failed', nameCheckError as Error, {
+          userId: params.owner_id,
+          action: 'create_club_name_check',
+          metadata: { clubName: params.name },
+        });
         throw nameCheckError;
       }
 
       if (existingClub) {
-        console.log('[useCreateClub] Club name already taken');
+        Logger.info('useCreateClub: Club name already taken', {
+          userId: params.owner_id,
+          action: 'create_club_name_conflict',
+          metadata: { clubName: params.name },
+        });
         throw new Error('Club name is already taken');
       }
 
       // Create club
-      console.log('[useCreateClub] Creating club...');
       const { data: club, error: clubError } = await supabase
         .from('clubs')
         .insert({
@@ -169,15 +182,16 @@ export function useCreateClub() {
         .select()
         .single();
 
-      console.log('[useCreateClub] Club created:', club, 'Error:', clubError);
-
       if (clubError) {
-        console.error('[useCreateClub] Club creation error:', clubError);
+        Logger.error('useCreateClub: Club creation failed', clubError as Error, {
+          userId: params.owner_id,
+          action: 'create_club_insert',
+          metadata: { clubName: params.name },
+        });
         throw clubError;
       }
 
       // Add owner as active member with owner role
-      console.log('[useCreateClub] Adding owner as member...');
       const { error: membershipError } = await supabase
         .from('club_memberships')
         .insert({
@@ -187,22 +201,28 @@ export function useCreateClub() {
           status: 'active',
         });
 
-      console.log('[useCreateClub] Membership error:', membershipError);
-
       if (membershipError) {
-        console.error('[useCreateClub] Membership creation error, rolling back...');
+        Logger.error('useCreateClub: Membership creation failed, rolling back', membershipError as Error, {
+          userId: params.owner_id,
+          clubId: club.id,
+          action: 'create_club_membership_rollback',
+        });
         // Rollback: delete the club if membership creation fails
         await supabase.from('clubs').delete().eq('id', club.id);
         throw membershipError;
       }
 
-      console.log('[useCreateClub] Club created successfully:', club);
+      Logger.info('useCreateClub: Club created successfully', {
+        userId: params.owner_id,
+        clubId: club.id,
+        action: 'create_club_success',
+        metadata: { clubName: club.name },
+      });
+
       return club as Club;
     },
     onSuccess: (data, variables) => {
-      console.log('[useCreateClub] onSuccess called with data:', data);
       // Invalidate clubs query to show new club
-      console.log('[useCreateClub] Invalidating queries for user:', variables.owner_id);
       queryClient.invalidateQueries({ queryKey: ['clubs', variables.owner_id] });
       queryClient.invalidateQueries({ queryKey: ['owned-clubs', variables.owner_id] });
 
@@ -211,10 +231,9 @@ export function useCreateClub() {
         text1: 'Club created',
         text2: `${data.name} is ready to go!`,
       });
-      console.log('[useCreateClub] onSuccess completed');
     },
     onError: (error: Error) => {
-      console.error('[useCreateClub] onError called:', error);
+      // Error already logged in mutationFn with full context
       Toast.show({
         type: 'error',
         text1: 'Failed to create club',

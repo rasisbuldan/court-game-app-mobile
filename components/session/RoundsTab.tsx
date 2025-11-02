@@ -1,12 +1,14 @@
 import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, TouchableWithoutFeedback, Keyboard } from 'react-native';
-import { useState, useMemo, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Play, RefreshCw, CheckCircle2 } from 'lucide-react-native';
+import { useState, useMemo, useEffect, memo } from 'react';
+import { ChevronLeft, ChevronRight, Play, CheckCircle2, Loader2 } from 'lucide-react-native';
 import { Round, Player, Match, MexicanoAlgorithm } from '@courtster/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../config/supabase';
 import { offlineQueue } from '../../utils/offlineQueue';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { retryScoreUpdate, retryDbOperation } from '../../utils/retryWithBackoff';
 import Toast from 'react-native-toast-message';
+import { validateMatchScore } from '../../utils/typeGuards';
 
 interface RoundsTabProps {
   currentRound: Round | undefined;
@@ -16,13 +18,16 @@ interface RoundsTabProps {
   session: any;
   players: Player[];
   algorithm: MexicanoAlgorithm | null;
+  algorithmError?: string | null; // ISSUE #5 FIX
+  onRetryAlgorithm?: () => void; // ISSUE #5 FIX: Retry callback
   sessionId: string;
-  onRoundChange: (index: number) => void;
+  onRoundChange: (index: number, direction: 'forward' | 'backward') => void;
   compactMode?: boolean;
   onSwitchPlayerPress?: () => void;
 }
 
-export function RoundsTab({
+// PHASE 2 OPTIMIZATION: Memoize component to prevent unnecessary re-renders
+export const RoundsTab = memo(function RoundsTab({
   currentRound,
   currentRoundIndex,
   allRounds,
@@ -30,6 +35,8 @@ export function RoundsTab({
   session,
   players,
   algorithm,
+  algorithmError, // ISSUE #5 FIX
+  onRetryAlgorithm, // ISSUE #5 FIX: Retry callback
   sessionId,
   onRoundChange,
   compactMode = false,
@@ -38,17 +45,43 @@ export function RoundsTab({
   const queryClient = useQueryClient();
   const { isOnline } = useNetworkStatus();
 
-  // Local state to track input values (while typing)
+  // ISSUE #6 FIX: Local state with size limits to prevent memory leaks
   const [localScores, setLocalScores] = useState<{ [key: string]: { team1?: string; team2?: string } }>({});
-
-  // Local state to track saved scores (immediately after blur, before DB sync)
   const [savedScores, setSavedScores] = useState<{ [key: string]: { team1Score?: number; team2Score?: number } }>({});
+
+  // ISSUE #6 FIX: Maximum entries to keep in state (prevents unbounded growth)
+  const MAX_STATE_ENTRIES = 50;
 
   // Clear local state when round changes
   useEffect(() => {
     setLocalScores({});
     setSavedScores({});
   }, [currentRoundIndex]);
+
+  // ISSUE #6 FIX: Cleanup on component unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      setLocalScores({});
+      setSavedScores({});
+    };
+  }, []);
+
+  // ISSUE #6 FIX: Helper to limit state size
+  const addToLimitedState = <T extends Record<string, any>>(
+    setState: React.Dispatch<React.SetStateAction<T>>,
+    key: string,
+    value: any
+  ) => {
+    setState(prev => {
+      const keys = Object.keys(prev);
+      // If we're at limit, remove oldest entry (first key)
+      if (keys.length >= MAX_STATE_ENTRIES) {
+        const { [keys[0]]: removed, ...rest } = prev;
+        return { ...rest, [key]: value } as T;
+      }
+      return { ...prev, [key]: value };
+    });
+  };
 
   // Generate next round mutation
   const generateRoundMutation = useMutation({
@@ -62,10 +95,11 @@ export function RoundsTab({
 
       if (isOnline) {
         // Online: update immediately
+        // NOTE: Pass JavaScript object directly - Supabase converts to JSONB automatically
         const { error } = await supabase
           .from('game_sessions')
           .update({
-            round_data: JSON.stringify(updatedRounds),
+            round_data: updatedRounds,
             current_round: updatedRounds.length - 1,
           })
           .eq('id', sessionId);
@@ -110,29 +144,42 @@ export function RoundsTab({
       if (!currentRound) return;
 
       // Check if all matches are scored
-      const allScored = currentRound.matches.every((match) => {
-        const team1HasScore = match.team1Score !== undefined &&
-                             match.team1Score !== null &&
-                             !isNaN(match.team1Score);
-        const team2HasScore = match.team2Score !== undefined &&
-                             match.team2Score !== null &&
-                             !isNaN(match.team2Score);
+      const allScored = currentRound.matches.every((match, index) => {
+        // Check all sources: localScores (string input), savedScores (optimistic UI), then match data (database)
+        const team1ScoreFromLocal = localScores[`match-${index}`]?.team1 ? parseInt(localScores[`match-${index}`].team1) : undefined;
+        const team2ScoreFromLocal = localScores[`match-${index}`]?.team2 ? parseInt(localScores[`match-${index}`].team2) : undefined;
+
+        const team1Score = !isNaN(team1ScoreFromLocal!) && team1ScoreFromLocal !== undefined
+          ? team1ScoreFromLocal
+          : (savedScores[`match-${index}`]?.team1Score ?? match.team1Score);
+        const team2Score = !isNaN(team2ScoreFromLocal!) && team2ScoreFromLocal !== undefined
+          ? team2ScoreFromLocal
+          : (savedScores[`match-${index}`]?.team2Score ?? match.team2Score);
+
+        const team1HasScore = team1Score !== undefined &&
+                             team1Score !== null &&
+                             !isNaN(team1Score);
+        const team2HasScore = team2Score !== undefined &&
+                             team2Score !== null &&
+                             !isNaN(team2Score);
 
         if (!team1HasScore || !team2HasScore) return false;
 
         // Validate based on scoring mode
-        if (session.scoring_mode === "first_to") {
-          const maxScore = Math.max(match.team1Score, match.team2Score);
-          const minScore = Math.min(match.team1Score, match.team2Score);
+        if (session.scoring_mode === "first_to" || session.scoring_mode === "first_to_games") {
+          // For "first to X" modes, one team must reach exactly X, the other must be less than X
+          const maxScore = Math.max(team1Score, team2Score);
+          const minScore = Math.min(team1Score, team2Score);
           return maxScore === session.points_per_match && minScore < session.points_per_match;
         } else {
-          return match.team1Score + match.team2Score === session.points_per_match;
+          // For "points" and "total_games" modes, scores must sum to points_per_match
+          return team1Score + team2Score === session.points_per_match;
         }
       });
 
       if (!allScored) {
-        const errorMessage = session.scoring_mode === "first_to"
-          ? `Please enter valid scores for all matches. One team must reach exactly ${session.points_per_match} games.`
+        const errorMessage = (session.scoring_mode === "first_to" || session.scoring_mode === "first_to_games")
+          ? `Please enter valid scores for all matches. One team must reach exactly ${session.points_per_match} ${session.scoring_mode === "first_to" ? "points" : "games"}.`
           : `Please enter valid scores for all matches. Each match must total ${session.points_per_match} ${session.scoring_mode === "total_games" ? "games" : "points"}.`;
         Toast.show({
           type: 'error',
@@ -142,21 +189,64 @@ export function RoundsTab({
         return;
       }
 
-      // All validation passed, generate new round
-      generateRoundMutation.mutate();
+      // Save any pending scores from localScores before advancing
+      // This ensures scores entered but not yet saved to database are persisted
+      const pendingSaves: Promise<any>[] = [];
+      currentRound.matches.forEach((match, index) => {
+        const team1ScoreFromLocal = localScores[`match-${index}`]?.team1 ? parseInt(localScores[`match-${index}`].team1) : undefined;
+        const team2ScoreFromLocal = localScores[`match-${index}`]?.team2 ? parseInt(localScores[`match-${index}`].team2) : undefined;
+
+        // Check if there are valid scores in localScores that haven't been saved yet
+        const hasLocalScores = !isNaN(team1ScoreFromLocal!) && team1ScoreFromLocal !== undefined &&
+                              !isNaN(team2ScoreFromLocal!) && team2ScoreFromLocal !== undefined;
+        const alreadySaved = savedScores[`match-${index}`]?.team1Score !== undefined &&
+                            savedScores[`match-${index}`]?.team2Score !== undefined;
+
+        if (hasLocalScores && !alreadySaved) {
+          // Save these scores before advancing
+          pendingSaves.push(
+            updateScoreMutation.mutateAsync({
+              matchIndex: index,
+              team1Score: team1ScoreFromLocal!,
+              team2Score: team2ScoreFromLocal!,
+            })
+          );
+        }
+      });
+
+      // Wait for all pending saves to complete before generating next round
+      if (pendingSaves.length > 0) {
+        Promise.all(pendingSaves)
+          .then(() => {
+            generateRoundMutation.mutate();
+          })
+          .catch((error) => {
+            Toast.show({
+              type: 'error',
+              text1: 'Failed to Save Scores',
+              text2: 'Please try again',
+            });
+          });
+      } else {
+        // No pending saves, generate next round immediately
+        generateRoundMutation.mutate();
+      }
     } else {
       // Navigate to next round
-      onRoundChange(currentRoundIndex + 1);
+      onRoundChange(currentRoundIndex + 1, 'forward');
     }
   };
 
   const handlePreviousRound = () => {
     if (currentRoundIndex > 0) {
-      onRoundChange(currentRoundIndex - 1);
+      onRoundChange(currentRoundIndex - 1, 'backward');
     }
   };
 
-  // Update score mutation - saves to database in background
+  // State to track which matches are currently saving
+  const [savingMatches, setSavingMatches] = useState<Set<number>>(new Set());
+
+  // ISSUE #3 FIX: Update score mutation with pessimistic locking and retry
   const updateScoreMutation = useMutation({
     mutationFn: async ({
       matchIndex,
@@ -167,53 +257,70 @@ export function RoundsTab({
       team1Score: number;
       team2Score: number;
     }) => {
-      const updatedRounds = [...allRounds];
-      const round = updatedRounds[currentRoundIndex];
+      const match = currentRound?.matches[matchIndex];
+      if (!match) throw new Error('Match not found');
 
-      if (!round) throw new Error('Round not found');
+      // UX FIX: Validate match scores before saving
+      const validation = validateMatchScore(
+        team1Score,
+        team2Score,
+        session?.scoring_mode || 'first_to_15'
+      );
 
-      // Update match scores
-      round.matches[matchIndex].team1Score = team1Score;
-      round.matches[matchIndex].team2Score = team2Score;
-
-      // Update ratings
-      if (algorithm) {
-        algorithm.updateRatings(round.matches[matchIndex]);
+      if (!validation.valid) {
+        throw new Error(validation.error || 'Invalid score');
       }
 
-      const match = round.matches[matchIndex];
       const description = `${match.team1[0].name} & ${match.team1[1].name} vs ${match.team2[0].name} & ${match.team2[1].name}: ${team1Score}-${team2Score}`;
 
       if (isOnline) {
-        // Online: update in background (fire and forget for better UX)
-        supabase
-          .from('game_sessions')
-          .update({ round_data: JSON.stringify(updatedRounds) })
-          .eq('id', sessionId)
-          .then(({ error }) => {
-            if (error) {
-              console.error('Error saving score:', error);
-              Toast.show({
-                type: 'error',
-                text1: 'Sync Failed',
-                text2: 'Score will retry when online',
-              });
-            }
+        // ISSUE #3 FIX: Use pessimistic locking stored procedure with retry logic
+        const result = await retryScoreUpdate(async () => {
+          // Call the stored procedure with row-level locking
+          const { data, error } = await supabase.rpc('update_score_with_lock', {
+            p_session_id: sessionId,
+            p_round_index: currentRoundIndex,
+            p_match_index: matchIndex,
+            p_team1_score: team1Score,
+            p_team2_score: team2Score,
           });
 
-        // Update player stats in background
-        updatePlayerStats(players, updatedRounds).catch(err =>
-          console.error('Error updating player stats:', err)
-        );
+          if (error) {
+            console.error('[Score Save Error]:', error);
+            throw new Error(`Failed to save score: ${error.message}`);
+          }
 
-        // Log event in background
-        supabase.from('event_history').insert({
-          session_id: sessionId,
-          event_type: 'score_updated',
-          description,
-        }).then(({ error }) => {
-          if (error) console.error('Error logging event:', error);
+          return data;
         });
+
+        // Update local algorithm ratings (client-side only)
+        if (algorithm) {
+          const updatedRounds = [...allRounds];
+          const round = updatedRounds[currentRoundIndex];
+          round.matches[matchIndex].team1Score = team1Score;
+          round.matches[matchIndex].team2Score = team2Score;
+          algorithm.updateRatings(round.matches[matchIndex]);
+        }
+
+        // ISSUE #3 FIX: Update player stats with error handling (non-blocking)
+        try {
+          await updatePlayerStats(players, allRounds);
+        } catch (statsError) {
+          console.error('[Player Stats Error]:', statsError);
+        }
+
+        // ISSUE #3 FIX: Log event with error handling (non-blocking)
+        try {
+          await supabase.from('event_history').insert({
+            session_id: sessionId,
+            event_type: 'score_updated',
+            description,
+          });
+        } catch (eventError) {
+          console.error('[Event Log Error]:', eventError);
+        }
+
+        return result;
       } else {
         // Offline: queue for later
         await offlineQueue.addOperation('UPDATE_SCORE', sessionId, {
@@ -222,12 +329,84 @@ export function RoundsTab({
           currentRoundIndex,
           team1Score,
           team2Score,
-          updatedRounds,
           description,
         });
-      }
 
-      return { matchIndex, team1Score, team2Score };
+        return { matchIndex, team1Score, team2Score };
+      }
+    },
+    onMutate: ({ matchIndex }) => {
+      // Add to saving set to show spinner
+      setSavingMatches(prev => new Set(prev).add(matchIndex));
+    },
+    onSuccess: ({ matchIndex }) => {
+      // Remove from saving set
+      setSavingMatches(prev => {
+        const updated = new Set(prev);
+        updated.delete(matchIndex);
+        return updated;
+      });
+
+      // ISSUE #3 FIX: Update savedScores state to show checkmark
+      setSavedScores(prev => ({
+        ...prev,
+        [`match-${matchIndex}`]: {
+          team1Score: currentRound?.matches[matchIndex]?.team1Score,
+          team2Score: currentRound?.matches[matchIndex]?.team2Score,
+        },
+      }));
+
+      // Clear saved indicator after 2 seconds
+      setTimeout(() => {
+        setSavedScores(prev => {
+          const updated = { ...prev };
+          delete updated[`match-${matchIndex}`];
+          return updated;
+        });
+      }, 2000);
+
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
+      queryClient.invalidateQueries({ queryKey: ['players', sessionId] });
+
+      // Show success toast
+      Toast.show({
+        type: 'success',
+        text1: 'Score Saved',
+        text2: 'Successfully updated match score',
+        visibilityTime: 1500,
+      });
+    },
+    onError: (error: any, variables) => {
+      // Remove from saving set
+      setSavingMatches(prev => {
+        const updated = new Set(prev);
+        updated.delete(variables.matchIndex);
+        return updated;
+      });
+
+      // ISSUE #3 FIX: Show descriptive error message
+      const errorMessage = error?.message || 'Unknown error occurred';
+      const isLockError = errorMessage.includes('lock') || errorMessage.includes('timeout');
+      const isValidationError = errorMessage.includes('points') || errorMessage.includes('win by 2') || errorMessage.includes('score');
+
+      Toast.show({
+        type: 'error',
+        text1: isValidationError ? 'Invalid Score' : 'Failed to Save Score',
+        text2: isOnline
+          ? (isLockError
+              ? 'Another user is editing. Retried but still failed. Please try again.'
+              : errorMessage)
+          : 'Score queued for when you\'re online',
+        visibilityTime: isValidationError ? 5000 : 4000, // Longer for validation errors
+      });
+
+      // Clear local state on error
+      setLocalScores(prev => {
+        const updated = { ...prev };
+        delete updated[`match-${variables.matchIndex}`];
+        return updated;
+      });
     },
   });
 
@@ -245,6 +424,75 @@ export function RoundsTab({
     await Promise.all(updatePromises);
   };
 
+  // ISSUE #5 FIX: Show error state if algorithm failed to initialize
+  if (algorithmError) {
+    return (
+      <View className="flex-1 items-center justify-center px-6">
+        <View className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 items-center">
+          <RefreshCw color="#DC2626" size={48} />
+          <Text className="text-xl font-semibold text-red-900 mt-4">Setup Error</Text>
+          <Text className="text-red-700 text-center mt-2 mb-4">
+            {algorithmError}
+          </Text>
+          <Text className="text-sm text-red-600 text-center mb-4">
+            {algorithmError.includes('4 players')
+              ? 'Add at least 4 active players to start the tournament.'
+              : 'Please check your session configuration or try again.'}
+          </Text>
+
+          {/* ISSUE #5 FIX: Retry button if retry callback provided */}
+          {onRetryAlgorithm && (
+            <View className="flex-row gap-3 mt-2">
+              <TouchableOpacity
+                className="bg-red-500 rounded-lg px-6 py-3 flex-row items-center gap-2"
+                onPress={() => {
+                  onRetryAlgorithm();
+                  Toast.show({
+                    type: 'info',
+                    text1: 'Retrying...',
+                    text2: 'Attempting to reinitialize algorithm',
+                    visibilityTime: 2000,
+                  });
+                }}
+              >
+                <RefreshCw color="#FFFFFF" size={16} />
+                <Text className="text-white font-semibold">Retry</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                className="bg-gray-200 rounded-lg px-6 py-3"
+                onPress={() => {
+                  Toast.show({
+                    type: 'info',
+                    text1: 'Go Back',
+                    text2: 'Please add players or check session settings',
+                  });
+                }}
+              >
+                <Text className="text-gray-700 font-semibold">Go Back</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Fallback if no retry callback */}
+          {!onRetryAlgorithm && (
+            <TouchableOpacity
+              className="bg-red-500 rounded-lg px-6 py-3"
+              onPress={() => {
+                Toast.show({
+                  type: 'info',
+                  text1: 'Go Back',
+                  text2: 'Please add players or check session settings',
+                });
+              }}
+            >
+              <Text className="text-white font-semibold">Go to Players</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    );
+  }
 
   if (!currentRound && allRounds.length === 0) {
     return (
@@ -310,29 +558,38 @@ export function RoundsTab({
         </TouchableOpacity>
 
         <View style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: 16,
-          paddingVertical: 12,
-          paddingHorizontal: 24,
-          minWidth: 180,
-          minHeight: 44,
+          flex: 1,
+          flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.06,
-          shadowRadius: 12,
-          elevation: 3,
+          gap: 8,
         }}>
-          <Text style={{
-            fontSize: 15,
-            fontWeight: '700',
-            color: '#111827',
-            letterSpacing: 0.5,
-            lineHeight: 20,
+          <View style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 16,
+            paddingVertical: 12,
+            paddingHorizontal: 24,
+            minWidth: 180,
+            minHeight: 44,
+            alignItems: 'center',
+            justifyContent: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.06,
+            shadowRadius: 12,
+            elevation: 3,
           }}>
-            ROUND {currentRound.number} OF {allRounds.length}
-          </Text>
+            <Text style={{
+              fontFamily: 'Inter',
+              fontSize: 15,
+              fontWeight: '700',
+              color: '#111827',
+              letterSpacing: 0.5,
+              lineHeight: 20,
+            }}>
+              ROUND {currentRound.number} OF {allRounds.length}
+            </Text>
+          </View>
         </View>
 
         <TouchableOpacity
@@ -369,43 +626,83 @@ export function RoundsTab({
             style={{ overflow: 'visible' }}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Matches */}
-            {currentRound?.matches?.length > 0 ? currentRound.matches.map((match, index) => {
-              // Safety checks
-              if (!match || !match.team1 || !match.team2) return null;
+            {/* Loading Placeholder - Prevent layout shift when generating next round */}
+            {generateRoundMutation.isPending && (
+              <View
+                style={{
+                  backgroundColor: '#F9FAFB',
+                  borderRadius: 20,
+                  padding: 16,
+                  marginBottom: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.03,
+                  shadowRadius: 12,
+                  elevation: 2,
+                  minHeight: compactMode ? 180 : 240,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <ActivityIndicator size="large" color="#EF4444" />
+                <Text style={{
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: '#9CA3AF',
+                  marginTop: 12
+                }}>
+                  Generating next round...
+                </Text>
+              </View>
+            )}
 
-              return (
-              <TouchableWithoutFeedback key={index} onPress={Keyboard.dismiss}>
-                <View
-                  style={{
-                    backgroundColor: '#FFFFFF',
-                    borderRadius: compactMode ? 16 : 20,
-                    padding: compactMode ? 12 : 16,
-                    marginBottom: 16,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.06,
-                    shadowRadius: 12,
-                    elevation: 3,
-                    overflow: 'visible',
-                  }}
-                >
+            {/* Matches */}
+            {!generateRoundMutation.isPending && currentRound?.matches?.length > 0 ? (
+              <>
+                {currentRound.matches.map((match, index) => {
+                  // Safety checks
+                  if (!match || !match.team1 || !match.team2) return null;
+
+                    return (
+                      <TouchableWithoutFeedback key={index} onPress={Keyboard.dismiss}>
+                        <View
+                          style={{
+                            backgroundColor: '#FFFFFF',
+                            borderRadius: compactMode ? 16 : 20,
+                            padding: compactMode ? 12 : 16,
+                            marginBottom: 16,
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.06,
+                            shadowRadius: 12,
+                            elevation: 3,
+                            overflow: 'visible',
+                          }}
+                        >
                 {compactMode ? (
                   /* COMPACT MODE - Layout 2: Two Lines Per Team */
                   <>
                     {/* Court Header */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>
+                        <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>
                           COURT {match.court || index + 1}
                         </Text>
-                        <View style={{
-                          opacity: (
-                            (savedScores[`match-${index}`]?.team1Score !== undefined && savedScores[`match-${index}`]?.team2Score !== undefined) ||
-                            (match.team1Score !== undefined && match.team2Score !== undefined)
-                          ) ? 1 : 0
-                        }}>
-                          <CheckCircle2 color="#10B981" size={14} fill="#10B981" />
+                        {/* ISSUE #3 FIX: Visual feedback for save states */}
+                        <View style={{ minWidth: 20, alignItems: 'center', justifyContent: 'center' }}>
+                          {savingMatches.has(index) ? (
+                            // Show spinner while saving
+                            <ActivityIndicator size="small" color="#3B82F6" />
+                          ) : (savedScores[`match-${index}`]?.team1Score !== undefined && savedScores[`match-${index}`]?.team2Score !== undefined) ? (
+                            // Show checkmark for recently saved (disappears after 2s)
+                            <CheckCircle2 color="#10B981" size={14} fill="#10B981" />
+                          ) : (match.team1Score !== undefined && match.team2Score !== undefined) ? (
+                            // Show checkmark for existing scores
+                            <View style={{ opacity: 0.4 }}>
+                              <CheckCircle2 color="#10B981" size={14} fill="#10B981" />
+                            </View>
+                          ) : null}
                         </View>
                       </View>
                     </View>
@@ -414,10 +711,10 @@ export function RoundsTab({
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                       {/* Team 1 - Two lines */}
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
+                        <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
                           {match.team1?.[0]?.name || 'Player 1'}
                         </Text>
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
+                        <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
                           {match.team1?.[1]?.name || 'Player 2'}
                         </Text>
                       </View>
@@ -436,6 +733,7 @@ export function RoundsTab({
                           ) ? '#10B981' : '#E5E7EB',
                           borderRadius: 12,
                           textAlign: 'center',
+                          fontFamily: 'Inter',
                           fontSize: 18,
                           fontWeight: '700',
                           color: '#111827',
@@ -473,41 +771,79 @@ export function RoundsTab({
                             });
                             return;
                           }
-                          let team2Score = savedScores[`match-${index}`]?.team2Score ?? match.team2Score;
+
+                          // Check for team2 score in localScores first, then savedScores, then database
+                          const team2LocalValue = localScores[`match-${index}`]?.team2;
+                          let team2Score: number | undefined;
+
+                          if (team2LocalValue) {
+                            const parsedTeam2 = parseInt(team2LocalValue);
+                            if (!isNaN(parsedTeam2) && parsedTeam2 >= 0) {
+                              team2Score = parsedTeam2;
+                            }
+                          }
+
+                          if (team2Score === undefined) {
+                            team2Score = savedScores[`match-${index}`]?.team2Score ?? match.team2Score;
+                          }
+
                           const shouldAutoFill = (
                             team2Score === undefined &&
                             session.scoring_mode !== 'first_to' &&
                             session.scoring_mode !== 'first_to_games'
                           );
+
                           if (shouldAutoFill) {
                             const maxPoints = session.points_per_match || 0;
                             if (team1Score <= maxPoints) {
                               team2Score = Math.max(0, maxPoints - team1Score);
                             }
-                          }
-                          setSavedScores(prev => ({
-                            ...prev,
-                            [`match-${index}`]: {
-                              team1Score,
-                              team2Score: team2Score !== undefined ? team2Score : (match.team2Score ?? 0)
+                            // For auto-filled scores, only update local state, don't save yet
+                            // This allows user to edit the auto-filled value before saving
+                            setLocalScores(prev => ({
+                              ...prev,
+                              [`match-${index}`]: {
+                                team1: localValue,
+                                team2: team2Score!.toString()
+                              }
+                            }));
+                          } else {
+                            // For "first to X" modes and other modes, save immediately when BOTH scores are present
+                            if (team2Score !== undefined) {
+                              setSavedScores(prev => ({
+                                ...prev,
+                                [`match-${index}`]: {
+                                  team1Score,
+                                  team2Score
+                                }
+                              }));
+                              setLocalScores(prev => {
+                                const updated = { ...prev };
+                                delete updated[`match-${index}`];
+                                return updated;
+                              });
+                              updateScoreMutation.mutate({
+                                matchIndex: index,
+                                team1Score,
+                                team2Score
+                              });
+                            } else {
+                              // Team2 score not entered yet - keep team1 in local state only
+                              setLocalScores(prev => ({
+                                ...prev,
+                                [`match-${index}`]: {
+                                  ...prev[`match-${index}`],
+                                  team1: localValue
+                                }
+                              }));
                             }
-                          }));
-                          setLocalScores(prev => {
-                            const updated = { ...prev };
-                            if (updated[`match-${index}`]) delete updated[`match-${index}`].team1;
-                            return updated;
-                          });
-                          updateScoreMutation.mutate({
-                            matchIndex: index,
-                            team1Score,
-                            team2Score: team2Score !== undefined ? team2Score : (match.team2Score ?? 0)
-                          });
+                          }
                         }}
                         maxLength={2}
                         placeholder="0"
                         placeholderTextColor="#D1D5DB"
                       />
-                        <Text style={{ fontSize: 16, fontWeight: '700', color: '#9CA3AF' }}>-</Text>
+                        <Text style={{ fontFamily: 'Inter', fontSize: 16, fontWeight: '700', color: '#9CA3AF' }}>-</Text>
                         <TextInput
                         style={{
                           width: 52,
@@ -520,6 +856,7 @@ export function RoundsTab({
                           ) ? '#10B981' : '#E5E7EB',
                           borderRadius: 12,
                           textAlign: 'center',
+                          fontFamily: 'Inter',
                           fontSize: 18,
                           fontWeight: '700',
                           color: '#111827',
@@ -557,35 +894,73 @@ export function RoundsTab({
                             });
                             return;
                           }
-                          let team1Score = savedScores[`match-${index}`]?.team1Score ?? match.team1Score;
+
+                          // Check for team1 score in localScores first, then savedScores, then database
+                          const team1LocalValue = localScores[`match-${index}`]?.team1;
+                          let team1Score: number | undefined;
+
+                          if (team1LocalValue) {
+                            const parsedTeam1 = parseInt(team1LocalValue);
+                            if (!isNaN(parsedTeam1) && parsedTeam1 >= 0) {
+                              team1Score = parsedTeam1;
+                            }
+                          }
+
+                          if (team1Score === undefined) {
+                            team1Score = savedScores[`match-${index}`]?.team1Score ?? match.team1Score;
+                          }
+
                           const shouldAutoFill = (
                             team1Score === undefined &&
                             session.scoring_mode !== 'first_to' &&
                             session.scoring_mode !== 'first_to_games'
                           );
+
                           if (shouldAutoFill) {
                             const maxPoints = session.points_per_match || 0;
                             if (team2Score <= maxPoints) {
                               team1Score = Math.max(0, maxPoints - team2Score);
                             }
-                          }
-                          setSavedScores(prev => ({
-                            ...prev,
-                            [`match-${index}`]: {
-                              team1Score: team1Score !== undefined ? team1Score : (match.team1Score ?? 0),
-                              team2Score
+                            // For auto-filled scores, only update local state, don't save yet
+                            // This allows user to edit the auto-filled value before saving
+                            setLocalScores(prev => ({
+                              ...prev,
+                              [`match-${index}`]: {
+                                team1: team1Score!.toString(),
+                                team2: localValue
+                              }
+                            }));
+                          } else {
+                            // For "first to X" modes and other modes, save immediately when BOTH scores are present
+                            if (team1Score !== undefined) {
+                              setSavedScores(prev => ({
+                                ...prev,
+                                [`match-${index}`]: {
+                                  team1Score,
+                                  team2Score
+                                }
+                              }));
+                              setLocalScores(prev => {
+                                const updated = { ...prev };
+                                delete updated[`match-${index}`];
+                                return updated;
+                              });
+                              updateScoreMutation.mutate({
+                                matchIndex: index,
+                                team1Score,
+                                team2Score
+                              });
+                            } else {
+                              // Team1 score not entered yet - keep team2 in local state only
+                              setLocalScores(prev => ({
+                                ...prev,
+                                [`match-${index}`]: {
+                                  ...prev[`match-${index}`],
+                                  team2: localValue
+                                }
+                              }));
                             }
-                          }));
-                          setLocalScores(prev => {
-                            const updated = { ...prev };
-                            if (updated[`match-${index}`]) delete updated[`match-${index}`].team2;
-                            return updated;
-                          });
-                          updateScoreMutation.mutate({
-                            matchIndex: index,
-                            team1Score: team1Score !== undefined ? team1Score : (match.team1Score ?? 0),
-                            team2Score
-                          });
+                          }
                         }}
                         maxLength={2}
                         placeholder="0"
@@ -595,10 +970,10 @@ export function RoundsTab({
 
                       {/* Team 2 - Two lines */}
                       <View style={{ flex: 1, minWidth: 0, alignItems: 'flex-end' }}>
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
+                        <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
                           {match.team2?.[0]?.name || 'Player 3'}
                         </Text>
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
+                        <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
                           {match.team2?.[1]?.name || 'Player 4'}
                         </Text>
                       </View>
@@ -609,7 +984,7 @@ export function RoundsTab({
                   <>
             {/* Court Header */}
             <View style={{ marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>
+              <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5 }}>
                 COURT {match.court || index + 1}
               </Text>
               <View style={{
@@ -631,10 +1006,10 @@ export function RoundsTab({
                 borderRadius: 12,
                 padding: 12,
               }}>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', marginBottom: 4 }} numberOfLines={1}>
+                <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#111827', marginBottom: 4 }} numberOfLines={1}>
                   {match.team1?.[0]?.name || 'Player 1'}
                 </Text>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
+                <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#111827' }} numberOfLines={1}>
                   {match.team1?.[1]?.name || 'Player 2'}
                 </Text>
               </View>
@@ -649,7 +1024,7 @@ export function RoundsTab({
                 justifyContent: 'center',
                 flexShrink: 0,
               }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: '#EF4444', letterSpacing: 0.5 }}>VS</Text>
+                <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '700', color: '#EF4444', letterSpacing: 0.5 }}>VS</Text>
               </View>
 
               {/* Team 2 */}
@@ -659,10 +1034,10 @@ export function RoundsTab({
                 borderRadius: 12,
                 padding: 12,
               }}>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', marginBottom: 4, textAlign: 'right' }} numberOfLines={1}>
+                <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#111827', marginBottom: 4, textAlign: 'right' }} numberOfLines={1}>
                   {match.team2?.[0]?.name || 'Player 3'}
                 </Text>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', textAlign: 'right' }} numberOfLines={1}>
+                <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#111827', textAlign: 'right' }} numberOfLines={1}>
                   {match.team2?.[1]?.name || 'Player 4'}
                 </Text>
               </View>
@@ -676,7 +1051,7 @@ export function RoundsTab({
               paddingHorizontal: 12,
             }}>
               {/* Score Label */}
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', textAlign: 'center', marginBottom: 12, letterSpacing: 0.5 }}>
+              <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '700', color: '#9CA3AF', textAlign: 'center', marginBottom: 12, letterSpacing: 0.5 }}>
                 SCORE
               </Text>
 
@@ -693,6 +1068,7 @@ export function RoundsTab({
                     ) ? '#10B981' : '#E5E7EB',
                     borderRadius: 16,
                     textAlign: 'center',
+                    fontFamily: 'Inter',
                     fontSize: 24,
                     fontWeight: '700',
                     color: '#111827',
@@ -745,8 +1121,21 @@ export function RoundsTab({
                       return;
                     }
 
-                    // Auto-fill team2 if needed
-                    let team2Score = savedScores[`match-${index}`]?.team2Score ?? match.team2Score;
+                    // Check for team2 score in localScores first, then savedScores, then database
+                    const team2LocalValue = localScores[`match-${index}`]?.team2;
+                    let team2Score: number | undefined;
+
+                    if (team2LocalValue) {
+                      const parsedTeam2 = parseInt(team2LocalValue);
+                      if (!isNaN(parsedTeam2) && parsedTeam2 >= 0) {
+                        team2Score = parsedTeam2;
+                      }
+                    }
+
+                    if (team2Score === undefined) {
+                      team2Score = savedScores[`match-${index}`]?.team2Score ?? match.team2Score;
+                    }
+
                     const shouldAutoFill = (
                       team2Score === undefined &&
                       session.scoring_mode !== 'first_to' &&
@@ -758,38 +1147,57 @@ export function RoundsTab({
                       if (team1Score <= maxPoints) {
                         team2Score = Math.max(0, maxPoints - team1Score);
                       }
+                      // For auto-filled scores, only update local state, don't save yet
+                      // This allows user to edit the auto-filled value before saving
+                      setLocalScores(prev => ({
+                        ...prev,
+                        [`match-${index}`]: {
+                          team1: localValue,
+                          team2: team2Score!.toString()
+                        }
+                      }));
+                    } else {
+                      // For "first to X" modes, don't auto-fill - only save when BOTH scores are explicitly entered
+                      if (team2Score !== undefined) {
+                        // Update local saved scores immediately for instant UI feedback
+                        setSavedScores(prev => ({
+                          ...prev,
+                          [`match-${index}`]: {
+                            team1Score,
+                            team2Score
+                          }
+                        }));
+
+                        // Clear entire match from local input state
+                        setLocalScores(prev => {
+                          const updated = { ...prev };
+                          delete updated[`match-${index}`];
+                          return updated;
+                        });
+
+                        // Save to database in background (async, non-blocking)
+                        updateScoreMutation.mutate({
+                          matchIndex: index,
+                          team1Score,
+                          team2Score
+                        });
+                      } else {
+                        // Team2 score not entered yet - keep team1 in local state only
+                        setLocalScores(prev => ({
+                          ...prev,
+                          [`match-${index}`]: {
+                            ...prev[`match-${index}`],
+                            team1: localValue
+                          }
+                        }));
+                      }
                     }
-
-                    // Update local saved scores immediately for instant UI feedback
-                    setSavedScores(prev => ({
-                      ...prev,
-                      [`match-${index}`]: {
-                        team1Score,
-                        team2Score: team2Score !== undefined ? team2Score : (match.team2Score ?? 0)
-                      }
-                    }));
-
-                    // Clear local input state
-                    setLocalScores(prev => {
-                      const updated = { ...prev };
-                      if (updated[`match-${index}`]) {
-                        delete updated[`match-${index}`].team1;
-                      }
-                      return updated;
-                    });
-
-                    // Save to database in background (async, non-blocking)
-                    updateScoreMutation.mutate({
-                      matchIndex: index,
-                      team1Score,
-                      team2Score: team2Score !== undefined ? team2Score : (match.team2Score ?? 0)
-                    });
                   }}
                   maxLength={2}
                   placeholder="0"
                   placeholderTextColor="#D1D5DB"
                 />
-                <Text style={{ fontSize: 24, fontWeight: '700', color: '#9CA3AF' }}>-</Text>
+                <Text style={{ fontFamily: 'Inter', fontSize: 24, fontWeight: '700', color: '#9CA3AF' }}>-</Text>
                 <TextInput
                   style={{
                     width: 80,
@@ -802,6 +1210,7 @@ export function RoundsTab({
                     ) ? '#10B981' : '#E5E7EB',
                     borderRadius: 16,
                     textAlign: 'center',
+                    fontFamily: 'Inter',
                     fontSize: 24,
                     fontWeight: '700',
                     color: '#111827',
@@ -854,8 +1263,21 @@ export function RoundsTab({
                       return;
                     }
 
-                    // Auto-fill team1 if needed
-                    let team1Score = savedScores[`match-${index}`]?.team1Score ?? match.team1Score;
+                    // Check for team1 score in localScores first, then savedScores, then database
+                    const team1LocalValue = localScores[`match-${index}`]?.team1;
+                    let team1Score: number | undefined;
+
+                    if (team1LocalValue) {
+                      const parsedTeam1 = parseInt(team1LocalValue);
+                      if (!isNaN(parsedTeam1) && parsedTeam1 >= 0) {
+                        team1Score = parsedTeam1;
+                      }
+                    }
+
+                    if (team1Score === undefined) {
+                      team1Score = savedScores[`match-${index}`]?.team1Score ?? match.team1Score;
+                    }
+
                     const shouldAutoFill = (
                       team1Score === undefined &&
                       session.scoring_mode !== 'first_to' &&
@@ -867,47 +1289,68 @@ export function RoundsTab({
                       if (team2Score <= maxPoints) {
                         team1Score = Math.max(0, maxPoints - team2Score);
                       }
+                      // For auto-filled scores, only update local state, don't save yet
+                      // This allows user to edit the auto-filled value before saving
+                      setLocalScores(prev => ({
+                        ...prev,
+                        [`match-${index}`]: {
+                          team1: team1Score!.toString(),
+                          team2: localValue
+                        }
+                      }));
+                    } else {
+                      // For "first to X" modes, don't auto-fill - only save when BOTH scores are explicitly entered
+                      if (team1Score !== undefined) {
+                        // Update local saved scores immediately for instant UI feedback
+                        setSavedScores(prev => ({
+                          ...prev,
+                          [`match-${index}`]: {
+                            team1Score,
+                            team2Score
+                          }
+                        }));
+
+                        // Clear entire match from local input state
+                        setLocalScores(prev => {
+                          const updated = { ...prev };
+                          delete updated[`match-${index}`];
+                          return updated;
+                        });
+
+                        // Save to database in background (async, non-blocking)
+                        updateScoreMutation.mutate({
+                          matchIndex: index,
+                          team1Score,
+                          team2Score
+                        });
+                      } else {
+                        // Team1 score not entered yet - keep team2 in local state only
+                        setLocalScores(prev => ({
+                          ...prev,
+                          [`match-${index}`]: {
+                            ...prev[`match-${index}`],
+                            team2: localValue
+                          }
+                        }));
+                      }
                     }
-
-                    // Update local saved scores immediately for instant UI feedback
-                    setSavedScores(prev => ({
-                      ...prev,
-                      [`match-${index}`]: {
-                        team1Score: team1Score !== undefined ? team1Score : (match.team1Score ?? 0),
-                        team2Score
-                      }
-                    }));
-
-                    // Clear local input state
-                    setLocalScores(prev => {
-                      const updated = { ...prev };
-                      if (updated[`match-${index}`]) {
-                        delete updated[`match-${index}`].team2;
-                      }
-                      return updated;
-                    });
-
-                    // Save to database in background (async, non-blocking)
-                    updateScoreMutation.mutate({
-                      matchIndex: index,
-                      team1Score: team1Score !== undefined ? team1Score : (match.team1Score ?? 0),
-                      team2Score
-                    });
                   }}
                   maxLength={2}
                   placeholder="0"
                   placeholderTextColor="#D1D5DB"
                 />
-              </View>
-            </View>
-                  </>
-                )}
-                </View>
-              </TouchableWithoutFeedback>
-              );
-            }) : (
+                        </View>
+                      </View>
+                        </>
+                      )}
+                        </View>
+                      </TouchableWithoutFeedback>
+                    );
+                })}
+              </>
+            ) : (
               <View style={{ padding: 32, alignItems: 'center' }}>
-                <Text style={{ fontSize: 14, color: '#9CA3AF' }}>No matches available</Text>
+                <Text style={{ fontFamily: 'Inter', fontSize: 14, color: '#9CA3AF' }}>No matches available</Text>
               </View>
             )}
 
@@ -926,10 +1369,10 @@ export function RoundsTab({
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <View>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 2 }}>
+                <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 2 }}>
                   Sitting Out
                 </Text>
-                <Text style={{ fontSize: 12, fontWeight: '500', color: '#9CA3AF' }}>
+                <Text style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: '500', color: '#9CA3AF' }}>
                   {currentRound.sittingPlayers.length} {currentRound.sittingPlayers.length === 1 ? 'player' : 'players'}
                 </Text>
               </View>
@@ -951,7 +1394,7 @@ export function RoundsTab({
                   }
                 }}
               >
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>
+                <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>
                   Switch Player
                 </Text>
               </TouchableOpacity>
@@ -965,6 +1408,7 @@ export function RoundsTab({
               {currentRound.sittingPlayers.map((player, index) => (
                 <View key={player.id} style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Text style={{
+                    fontFamily: 'Inter',
                     fontSize: 14,
                     fontWeight: '500',
                     color: '#111827',
@@ -974,6 +1418,7 @@ export function RoundsTab({
                   </Text>
                   {index < currentRound.sittingPlayers.length - 1 && (
                     <Text style={{
+                      fontFamily: 'Inter',
                       fontSize: 14,
                       fontWeight: '600',
                       color: '#9CA3AF',
@@ -993,4 +1438,4 @@ export function RoundsTab({
       </TouchableWithoutFeedback>
     </View>
   );
-}
+});

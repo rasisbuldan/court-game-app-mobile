@@ -1,5 +1,5 @@
-import { View, Text, ScrollView, TouchableOpacity } from 'react';
-import { useState, useMemo } from 'react';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { useState, useMemo, memo } from 'react';
 import { Users, Target } from 'lucide-react-native';
 import { Player, Round } from '@courtster/shared';
 import { calculatePartnershipStats, calculateHeadToHeadStats } from '@courtster/shared';
@@ -10,7 +10,8 @@ interface StatisticsTabProps {
   allRounds: Round[];
 }
 
-export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
+// PHASE 2 OPTIMIZATION: Memoize component to prevent unnecessary re-renders
+export const StatisticsTab = memo(function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
   const [tab, setTab] = useState<'partnerships' | 'headtohead'>('partnerships');
 
   // Calculate statistics
@@ -34,13 +35,21 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
 
   const topHeadToHead = useMemo(() => {
     return headToHeadStats
-      .filter((stat) => stat.matchesPlayed >= 1)
-      .sort((a, b) => b.winRate - a.winRate)
+      .filter((stat) => stat.totalMatches >= 1)
+      .sort((a, b) => {
+        const maxWinRateA = Math.max(a.winRate1, a.winRate2);
+        const maxWinRateB = Math.max(b.winRate1, b.winRate2);
+        return maxWinRateB - maxWinRateA;
+      })
       .slice(0, 20);
   }, [headToHeadStats]);
 
   return (
-    <View className="flex-1">
+    <ScrollView
+      style={{ flex: 1 }}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: 16 }}
+    >
       {/* Statistics Widgets */}
       <StatisticsWidgets players={players} allRounds={allRounds} />
 
@@ -56,7 +65,7 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
         shadowRadius: 8,
         elevation: 2,
       }}>
-        <View className="flex-row gap-2">
+        <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity
             style={{
               flex: 1,
@@ -69,6 +78,7 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
           >
             <Text
               style={{
+                fontFamily: 'Inter',
                 textAlign: 'center',
                 fontWeight: '600',
                 color: tab === 'partnerships' ? '#FFFFFF' : '#374151',
@@ -89,6 +99,7 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
           >
             <Text
               style={{
+                fontFamily: 'Inter',
                 textAlign: 'center',
                 fontWeight: '600',
                 color: tab === 'headtohead' ? '#FFFFFF' : '#374151',
@@ -100,13 +111,13 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
         </View>
       </View>
 
-      <View className="flex-1">
-        {tab === 'partnerships' && (
-          <View>
+      {/* Content */}
+      {tab === 'partnerships' && (
+        <View>
             {topPartnerships.length > 0 ? (
               topPartnerships.map((stat, index) => (
                 <View
-                  key={`${stat.player1Id}-${stat.player2Id}`}
+                  key={`${stat.player1.id}-${stat.player2.id}`}
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.85)',
                     borderRadius: 16,
@@ -121,42 +132,42 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
                     elevation: 2,
                   }}
                 >
-                  <View className="flex-row items-center justify-between mb-2">
-                    <View className="flex-1">
-                      <Text className="text-sm font-semibold text-gray-900">
-                        {stat.player1Name} & {stat.player2Name}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#111827' }}>
+                        {stat.player1.name} & {stat.player2.name}
                       </Text>
-                      <Text className="text-xs text-gray-500 mt-1">
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#6B7280', marginTop: 4 }}>
                         {stat.roundsPlayed} {stat.roundsPlayed === 1 ? 'round' : 'rounds'} together
                       </Text>
                     </View>
-                    <View className="items-end">
-                      <Text style={{ fontSize: 18, fontWeight: '700', color: '#EF4444' }}>
-                        {(stat.winRate * 100).toFixed(0)}%
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 18, fontWeight: '700', color: '#EF4444' }}>
+                        {stat.winRate.toFixed(0)}%
                       </Text>
-                      <Text className="text-xs text-gray-500">win rate</Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#6B7280' }}>win rate</Text>
                     </View>
                   </View>
 
-                  <View className="flex-row items-center justify-between pt-3 border-t border-gray-100">
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6' }}>
                     <View>
-                      <Text className="text-xs text-gray-500">Record</Text>
-                      <Text className="text-sm font-medium text-gray-900">
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#6B7280' }}>Record</Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '500', color: '#111827' }}>
                         {stat.wins}W-{stat.losses}L-{stat.ties}T
                       </Text>
                     </View>
-                    <View className="items-end">
-                      <Text className="text-xs text-gray-500">Points Scored</Text>
-                      <Text className="text-sm font-medium text-gray-900">{stat.totalPoints}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#6B7280' }}>Points Scored</Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '500', color: '#111827' }}>{stat.totalPoints}</Text>
                     </View>
                   </View>
                 </View>
               ))
             ) : (
-              <View className="flex-1 items-center justify-center py-12">
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 48 }}>
                 <Users color="#9CA3AF" size={48} />
-                <Text className="text-gray-500 mt-4">No partnership data yet</Text>
-                <Text className="text-gray-400 text-sm mt-1">Play some rounds to see stats</Text>
+                <Text style={{ fontFamily: 'Inter', color: '#6B7280', marginTop: 16 }}>No partnership data yet</Text>
+                <Text style={{ fontFamily: 'Inter', color: '#9CA3AF', fontSize: 14, marginTop: 4 }}>Play some rounds to see stats</Text>
               </View>
             )}
           </View>
@@ -167,7 +178,7 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
             {topHeadToHead.length > 0 ? (
               topHeadToHead.map((stat, index) => (
                 <View
-                  key={`${stat.player1Id}-${stat.player2Id}`}
+                  key={`${stat.player1.id}-${stat.player2.id}`}
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.85)',
                     borderRadius: 16,
@@ -182,52 +193,51 @@ export function StatisticsTab({ players, allRounds }: StatisticsTabProps) {
                     elevation: 2,
                   }}
                 >
-                  <View className="flex-row items-center justify-between mb-2">
-                    <View className="flex-1">
-                      <Text className="text-sm font-semibold text-gray-900">
-                        {stat.player1Name}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#111827' }}>
+                        {stat.player1.name}
                       </Text>
-                      <Text className="text-xs text-gray-500 mt-0.5">vs</Text>
-                      <Text className="text-sm font-medium text-gray-700">{stat.player2Name}</Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#6B7280', marginTop: 2 }}>vs</Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '500', color: '#374151' }}>{stat.player2.name}</Text>
                     </View>
-                    <View className="items-end">
-                      <Text style={{ fontSize: 18, fontWeight: '700', color: '#EF4444' }}>
-                        {(stat.winRate * 100).toFixed(0)}%
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 18, fontWeight: '700', color: '#EF4444' }}>
+                        {stat.winRate1.toFixed(0)}%
                       </Text>
-                      <Text className="text-xs text-gray-500">win rate</Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#6B7280' }}>win rate</Text>
                     </View>
                   </View>
 
-                  <View className="flex-row items-center justify-between pt-3 border-t border-gray-100">
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6' }}>
                     <View>
-                      <Text className="text-xs text-gray-500">Matchups</Text>
-                      <Text className="text-sm font-medium text-gray-900">
-                        {stat.matchesPlayed}
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#6B7280' }}>Matchups</Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '500', color: '#111827' }}>
+                        {stat.totalMatches}
                       </Text>
                     </View>
-                    <View className="items-center">
-                      <Text className="text-xs text-gray-500">Record</Text>
-                      <Text className="text-sm font-medium text-gray-900">
-                        {stat.wins}-{stat.losses}-{stat.ties}
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#6B7280' }}>Record</Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '500', color: '#111827' }}>
+                        {stat.player1Wins}-{stat.player2Wins}-{stat.ties}
                       </Text>
                     </View>
-                    <View className="items-end">
-                      <Text className="text-xs text-gray-500">Points</Text>
-                      <Text className="text-sm font-medium text-gray-900">{stat.totalPoints}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, color: '#6B7280' }}>Points</Text>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '500', color: '#111827' }}>{stat.player1Points + stat.player2Points}</Text>
                     </View>
                   </View>
                 </View>
               ))
             ) : (
-              <View className="flex-1 items-center justify-center py-12">
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 48 }}>
                 <Target color="#9CA3AF" size={48} />
-                <Text className="text-gray-500 mt-4">No head-to-head data yet</Text>
-                <Text className="text-gray-400 text-sm mt-1">Play some rounds to see stats</Text>
+                <Text style={{ fontFamily: 'Inter', color: '#6B7280', marginTop: 16 }}>No head-to-head data yet</Text>
+                <Text style={{ fontFamily: 'Inter', color: '#9CA3AF', fontSize: 14, marginTop: 4 }}>Play some rounds to see stats</Text>
               </View>
             )}
           </View>
         )}
-      </View>
-    </View>
+    </ScrollView>
   );
-}
+});

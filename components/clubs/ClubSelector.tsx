@@ -48,81 +48,65 @@ export default function ClubSelector({
 
       {/* Selector Button */}
       <TouchableOpacity
-        onPress={() => !disabled && setModalVisible(true)}
-        disabled={disabled}
+        onPress={() => !disabled && !isLoading && setModalVisible(true)}
+        disabled={disabled || isLoading}
         activeOpacity={0.7}
         style={{
           backgroundColor: disabled ? '#F9FAFB' : '#FFFFFF',
+          borderWidth: 1,
+          borderColor: error ? '#EF4444' : '#D1D5DB',
           borderRadius: 16,
-          padding: 16,
-          borderWidth: error ? 1 : 0,
-          borderColor: error ? '#EF4444' : 'transparent',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 8,
-          elevation: 2,
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
         }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-            {selectedClub ? (
-              <>
-                {/* Club Logo */}
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: selectedClub.logo_url ? '#E5E7EB' : '#F43F5E',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {selectedClub.logo_url ? (
-                    <Image
-                      source={{ uri: selectedClub.logo_url }}
-                      style={{ width: 40, height: 40 }}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#FFFFFF' }}>
-                      {selectedClub.name.charAt(0).toUpperCase()}
-                    </Text>
-                  )}
-                </View>
-                {/* Club Name */}
-                <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827', flex: 1 }} numberOfLines={1}>
-                  {selectedClub.name}
-                </Text>
-              </>
-            ) : (
-              <>
-                {/* Empty State Icon */}
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: '#F3F4F6',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Users color="#9CA3AF" size={20} />
-                </View>
-                {/* Placeholder */}
-                <Text style={{ fontSize: 16, color: '#9CA3AF', flex: 1 }} numberOfLines={1}>
-                  {placeholder}
-                </Text>
-              </>
-            )}
+        {isLoading ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <ActivityIndicator size="small" color="#9CA3AF" />
+            <Text style={{ fontSize: 15, fontWeight: '600', color: '#9CA3AF' }}>
+              Loading clubs...
+            </Text>
           </View>
-
-          {/* Dropdown Icon */}
-          <ChevronDown color={disabled ? '#9CA3AF' : '#6B7280'} size={20} />
-        </View>
+        ) : selectedClub ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+            {/* Club Logo */}
+            <View
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                backgroundColor: selectedClub.logo_url ? '#E5E7EB' : '#F43F5E',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+              }}
+            >
+              {selectedClub.logo_url ? (
+                <Image
+                  source={{ uri: selectedClub.logo_url }}
+                  style={{ width: 32, height: 32 }}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#FFFFFF' }}>
+                  {selectedClub.name.charAt(0).toUpperCase()}
+                </Text>
+              )}
+            </View>
+            {/* Club Name */}
+            <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827', flex: 1 }} numberOfLines={1}>
+              {selectedClub.name}
+            </Text>
+          </View>
+        ) : (
+          <Text style={{ fontSize: 15, fontWeight: '600', color: '#9CA3AF', flex: 1 }} numberOfLines={1}>
+            {placeholder}
+          </Text>
+        )}
+        {!isLoading && <ChevronDown color={disabled ? '#9CA3AF' : '#6B7280'} size={20} />}
       </TouchableOpacity>
 
       {/* Error Message */}

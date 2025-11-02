@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColorScheme } from 'react-native';
+import { useSettings } from '../hooks/useSettings';
+import { Logger } from '../utils/logger';
 
 export type FontSize = 'small' | 'medium' | 'large';
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -27,9 +29,7 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const THEME_MODE_KEY = '@courtster_theme_mode';
-const FONT_SIZE_KEY = '@courtster_font_size';
-const REDUCE_ANIMATION_KEY = '@courtster_reduce_animation';
+const FONT_SIZE_KEY = '@courtster_font_size'; // Keep fontSize in AsyncStorage (not critical for beta)
 
 const FONT_SCALE_MAP: Record<FontSize, number> = {
   small: 0.875,  // 87.5% of base size
@@ -44,10 +44,16 @@ interface ThemeProviderProps {
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const systemColorScheme = useColorScheme();
 
-  const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
+  // Use Supabase-backed settings (depends on auth)
+  const { settings, isLoading: settingsLoading, updateSettings } = useSettings();
+
+  // fontSize stays in AsyncStorage (not critical for beta sync)
   const [fontSize, setFontSizeState] = useState<FontSize>('medium');
-  const [reduceAnimation, setReduceAnimationState] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [fontSizeLoading, setFontSizeLoading] = useState(true);
+
+  // Derive values from Supabase settings (with defaults)
+  const themeMode = settings?.theme || 'system';
+  const reduceAnimation = settings ? !settings.animations_enabled : false; // Inverted: animations_enabled -> reduceAnimation
 
   // Calculate isDark based on theme mode
   const isDark = themeMode === 'system'
@@ -57,41 +63,37 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   // Get font scale multiplier
   const fontScale = FONT_SCALE_MAP[fontSize];
 
-  // Load all preferences on mount
+  // Combined loading state
+  const isLoading = settingsLoading || fontSizeLoading;
+
+  // Load fontSize from AsyncStorage on mount
   useEffect(() => {
-    loadPreferences();
+    loadFontSize();
   }, []);
 
-  const loadPreferences = async () => {
+  const loadFontSize = async () => {
     try {
-      const [storedThemeMode, storedFontSize, storedReduceAnimation] = await Promise.all([
-        AsyncStorage.getItem(THEME_MODE_KEY),
-        AsyncStorage.getItem(FONT_SIZE_KEY),
-        AsyncStorage.getItem(REDUCE_ANIMATION_KEY),
-      ]);
-
-      if (storedThemeMode) {
-        setThemeModeState(storedThemeMode as ThemeMode);
-      }
+      const storedFontSize = await AsyncStorage.getItem(FONT_SIZE_KEY);
       if (storedFontSize) {
         setFontSizeState(storedFontSize as FontSize);
       }
-      if (storedReduceAnimation !== null) {
-        setReduceAnimationState(storedReduceAnimation === 'true');
-      }
     } catch (error) {
-      console.error('Failed to load theme preferences:', error);
+      Logger.error('ThemeContext: Failed to load font size', error as Error, {
+        action: 'load_font_size',
+      });
     } finally {
-      setIsLoading(false);
+      setFontSizeLoading(false);
     }
   };
 
   const setThemeMode = async (mode: ThemeMode) => {
     try {
-      await AsyncStorage.setItem(THEME_MODE_KEY, mode);
-      setThemeModeState(mode);
+      updateSettings({ theme: mode });
     } catch (error) {
-      console.error('Failed to save theme mode:', error);
+      Logger.error('ThemeContext: Failed to save theme mode', error as Error, {
+        action: 'save_theme_mode',
+        metadata: { mode },
+      });
     }
   };
 
@@ -100,16 +102,22 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
       await AsyncStorage.setItem(FONT_SIZE_KEY, size);
       setFontSizeState(size);
     } catch (error) {
-      console.error('Failed to save font size:', error);
+      Logger.error('ThemeContext: Failed to save font size', error as Error, {
+        action: 'save_font_size',
+        metadata: { size },
+      });
     }
   };
 
   const setReduceAnimation = async (value: boolean) => {
     try {
-      await AsyncStorage.setItem(REDUCE_ANIMATION_KEY, value.toString());
-      setReduceAnimationState(value);
+      // Invert: reduceAnimation (UI) -> animations_enabled (backend)
+      updateSettings({ animations_enabled: !value });
     } catch (error) {
-      console.error('Failed to save animation preference:', error);
+      Logger.error('ThemeContext: Failed to save animation preference', error as Error, {
+        action: 'save_animation_preference',
+        metadata: { value },
+      });
     }
   };
 

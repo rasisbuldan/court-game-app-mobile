@@ -110,12 +110,45 @@ export function SwitchPlayerModal({
     match.team2?.forEach(player => playingPlayerIds.add(player.id));
   });
 
-  // Available players for switching (sitting players)
-  const availablePlayers = allPlayers.filter(player => !playingPlayerIds.has(player.id));
+  // UX FIX: Helper to get unavailability reason
+  const getUnavailableReason = (player: Player): string | null => {
+    if (player.status === 'sitting') return 'Currently sitting out';
+    if (player.status === 'skip') return 'Skipping this session';
+    if (playingPlayerIds.has(player.id)) {
+      // Find which court
+      let court = null;
+      matches.forEach((match, idx) => {
+        const inMatch = match.team1?.some(p => p.id === player.id) || match.team2?.some(p => p.id === player.id);
+        if (inMatch) {
+          court = match.court || idx + 1;
+        }
+      });
+      return court ? `Currently playing on Court ${court}` : 'Currently playing';
+    }
+    return null;
+  };
 
-  // Get playing players (excluding the selected player)
+  // UX FIX: Filter players by availability with reasons
+  // Available = active status + sitting (not playing)
+  const availablePlayers = allPlayers.filter(player => {
+    return player.status === 'active' && !playingPlayerIds.has(player.id);
+  });
+
+  // Unavailable = non-active status OR currently playing
+  const unavailablePlayers = allPlayers.filter(player => {
+    // Exclude the currently selected player
+    if (selectedMatch !== null && selectedPosition) {
+      const selectedPlayerId = getCurrentPlayerId(matches[selectedMatch], selectedPosition);
+      if (player.id === selectedPlayerId) return false;
+    }
+
+    return player.status !== 'active' || playingPlayerIds.has(player.id);
+  });
+
+  // Get playing players (for swap section - excluding the selected player)
   const playingPlayers = allPlayers.filter(player => {
     if (!playingPlayerIds.has(player.id)) return false;
+    if (player.status !== 'active') return false; // UX FIX: Only active players can be swapped
     // Exclude the currently selected player to replace
     if (selectedMatch !== null && selectedPosition) {
       const selectedPlayerId = getCurrentPlayerId(matches[selectedMatch], selectedPosition);
@@ -307,64 +340,125 @@ export function SwitchPlayerModal({
                   Select Replacement Player
                 </Text>
 
+                {/* UX FIX: Available Players Section */}
                 {availablePlayers.length > 0 ? (
-                  <View style={{ gap: 8 }}>
-                    {availablePlayers.map((player) => {
-                      const isSelected = selectedPlayer === player.id;
+                  <>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: '#10B981', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Available ({availablePlayers.length})
+                    </Text>
+                    <View style={{ gap: 8, marginBottom: 20 }}>
+                      {availablePlayers.map((player) => {
+                        const isSelected = selectedPlayer === player.id;
 
-                      return (
-                        <TouchableOpacity
-                          key={player.id}
-                          onPress={() => handlePlayerSelect(player.id)}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            backgroundColor: isSelected ? '#ECFDF5' : '#FFFFFF',
-                            borderWidth: 1,
-                            borderColor: isSelected ? '#10B981' : '#E5E7EB',
-                            borderRadius: 12,
-                            padding: 12,
-                          }}
-                        >
-                          <View style={{ flex: 1 }}>
-                            <Text style={{
-                              fontSize: 14,
-                              fontWeight: '600',
-                              color: isSelected ? '#10B981' : '#111827',
-                            }}>
-                              {player.name}
-                            </Text>
-                            <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
-                              Sitting out
-                            </Text>
-                          </View>
-                          {isSelected && (
-                            <View style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 10,
-                              backgroundColor: '#10B981',
+                        return (
+                          <TouchableOpacity
+                            key={player.id}
+                            onPress={() => handlePlayerSelect(player.id)}
+                            style={{
+                              flexDirection: 'row',
                               alignItems: 'center',
-                              justifyContent: 'center',
-                            }}>
-                              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFFFFF' }} />
+                              justifyContent: 'space-between',
+                              backgroundColor: isSelected ? '#ECFDF5' : '#FFFFFF',
+                              borderWidth: 1,
+                              borderColor: isSelected ? '#10B981' : '#E5E7EB',
+                              borderRadius: 12,
+                              padding: 12,
+                            }}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <Text style={{
+                                fontSize: 14,
+                                fontWeight: '600',
+                                color: isSelected ? '#10B981' : '#111827',
+                              }}>
+                                {player.name}
+                              </Text>
+                              <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+                                Rating: {player.rating.toFixed(1)} • Sitting out
+                              </Text>
                             </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                            {isSelected && (
+                              <View style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: 10,
+                                backgroundColor: '#10B981',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}>
+                                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FFFFFF' }} />
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </>
                 ) : (
                   <View style={{
                     backgroundColor: '#FEF3C7',
                     borderRadius: 12,
                     padding: 16,
+                    marginBottom: 20,
                   }}>
                     <Text style={{ fontSize: 13, color: '#92400E', textAlign: 'center' }}>
-                      No players available (all players are currently playing)
+                      No players available. All active players are currently playing.
                     </Text>
                   </View>
+                )}
+
+                {/* UX FIX: Unavailable Players Section */}
+                {unavailablePlayers.length > 0 && (
+                  <>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: '#9CA3AF', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Unavailable ({unavailablePlayers.length})
+                    </Text>
+                    <View style={{ gap: 8 }}>
+                      {unavailablePlayers.map((player) => {
+                        const reason = getUnavailableReason(player);
+
+                        return (
+                          <View
+                            key={player.id}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              backgroundColor: '#F9FAFB',
+                              borderWidth: 1,
+                              borderColor: '#E5E7EB',
+                              borderRadius: 12,
+                              padding: 12,
+                              opacity: 0.6,
+                            }}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <Text style={{
+                                fontSize: 14,
+                                fontWeight: '600',
+                                color: '#6B7280',
+                              }}>
+                                {player.name}
+                              </Text>
+                              <Text style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>
+                                {reason || 'Not available'}
+                              </Text>
+                            </View>
+                            <View style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              backgroundColor: '#E5E7EB',
+                              borderRadius: 6,
+                            }}>
+                              <Text style={{ fontSize: 11, fontWeight: '600', color: '#6B7280' }}>
+                                Unavailable
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </>
                 )}
 
                 {/* Swap with Other Player on Court */}

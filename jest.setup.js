@@ -1,3 +1,10 @@
+// Mock Expo Winter
+global.__ExpoImportMetaRegistry = {
+  get: jest.fn(),
+  set: jest.fn(),
+};
+global.structuredClone = jest.fn((val) => JSON.parse(JSON.stringify(val)));
+
 // Mock AsyncStorage
 jest.mock('@react-native-async-storage/async-storage', () => ({
   setItem: jest.fn(() => Promise.resolve()),

@@ -4,7 +4,7 @@ import { supabase } from '../config/supabase';
 
 export type QueuedOperation = {
   id: string;
-  type: 'UPDATE_SCORE' | 'GENERATE_ROUND' | 'UPDATE_PLAYER_STATUS' | 'REASSIGN_PLAYER';
+  type: 'UPDATE_SCORE' | 'GENERATE_ROUND' | 'REGENERATE_ROUND' | 'UPDATE_PLAYER_STATUS' | 'REASSIGN_PLAYER';
   sessionId: string;
   data: any;
   timestamp: number;
@@ -146,6 +146,8 @@ class OfflineQueueManager {
         return this.executeUpdateScore(operation);
       case 'GENERATE_ROUND':
         return this.executeGenerateRound(operation);
+      case 'REGENERATE_ROUND':
+        return this.executeRegenerateRound(operation);
       case 'UPDATE_PLAYER_STATUS':
         return this.executeUpdatePlayerStatus(operation);
       case 'REASSIGN_PLAYER':
@@ -160,9 +162,10 @@ class OfflineQueueManager {
       operation.data;
 
     // Update session
+    // NOTE: Pass JavaScript object directly - Supabase converts to JSONB automatically
     const { error } = await supabase
       .from('game_sessions')
-      .update({ round_data: JSON.stringify(updatedRounds) })
+      .update({ round_data: updatedRounds })
       .eq('id', sessionId);
 
     if (error) throw error;
@@ -178,11 +181,32 @@ class OfflineQueueManager {
   private async executeGenerateRound(operation: QueuedOperation) {
     const { sessionId, updatedRounds, currentRound } = operation.data;
 
+    // NOTE: Pass JavaScript object directly - Supabase converts to JSONB automatically
     const { error } = await supabase
       .from('game_sessions')
       .update({
-        round_data: JSON.stringify(updatedRounds),
+        round_data: updatedRounds,
         current_round: currentRound,
+      })
+      .eq('id', sessionId);
+
+    if (error) throw error;
+
+    await supabase.from('event_history').insert({
+      session_id: sessionId,
+      event_type: 'round_generated',
+      description: operation.data.description,
+    });
+  }
+
+  private async executeRegenerateRound(operation: QueuedOperation) {
+    const { sessionId, updatedRounds } = operation.data;
+
+    // NOTE: Pass JavaScript object directly - Supabase converts to JSONB automatically
+    const { error } = await supabase
+      .from('game_sessions')
+      .update({
+        round_data: updatedRounds,
       })
       .eq('id', sessionId);
 
@@ -217,9 +241,10 @@ class OfflineQueueManager {
     const { oldPlayerId, newPlayerId, sessionId, description, updatedRounds } = operation.data;
 
     // Update round data
+    // NOTE: Pass JavaScript object directly - Supabase converts to JSONB automatically
     const { error: sessionError } = await supabase
       .from('game_sessions')
-      .update({ round_data: JSON.stringify(updatedRounds) })
+      .update({ round_data: updatedRounds })
       .eq('id', sessionId);
 
     if (sessionError) throw sessionError;

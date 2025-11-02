@@ -11,22 +11,22 @@ const GAME_FORMATS: GameFormatOption[] = [
   {
     value: 'mexicano',
     label: 'Mexicano',
-    description: 'Rotating partners, everyone plays with everyone',
-  },
-  {
-    value: 'mixed_mexicano',
-    label: 'Mixed Mexicano',
-    description: 'Gender-balanced rotating pairs',
+    description: 'Skill-based matchmaking with rotating partners',
   },
   {
     value: 'americano',
     label: 'Americano',
-    description: 'Fixed partners, American-style tournament',
+    description: 'Round robin - everyone pairs with everyone',
   },
   {
     value: 'fixed_partner',
     label: 'Fixed Partner',
-    description: 'Manual partner assignments for all players',
+    description: 'Mexicano with permanent partner pairs',
+  },
+  {
+    value: 'mixed_mexicano',
+    label: 'Mixed Mexicano',
+    description: 'Mexicano with mandatory mixed doubles (1M+1W)',
   },
 ];
 
@@ -49,9 +49,9 @@ export function GameFormatSelector({ value, onChange, disabled }: GameFormatSele
             disabled={disabled}
             activeOpacity={0.7}
             style={{
-              backgroundColor: isSelected ? '#EF4444' : 'rgba(255, 255, 255, 0.9)',
+              backgroundColor: isSelected ? '#EF4444' : '#FFFFFF',
               borderWidth: 1,
-              borderColor: isSelected ? '#EF4444' : 'rgba(209, 213, 219, 0.5)',
+              borderColor: isSelected ? '#EF4444' : '#D1D5DB',
               borderRadius: 14,
               padding: 16,
               shadowColor: isSelected ? '#EF4444' : '#000',
@@ -63,8 +63,8 @@ export function GameFormatSelector({ value, onChange, disabled }: GameFormatSele
           >
             <Text
               style={{
-                fontSize: 15,
-                fontWeight: '700',
+                fontSize: 14,
+                fontWeight: '600',
                 color: isSelected ? '#FFFFFF' : '#111827',
                 marginBottom: 4,
               }}
@@ -73,9 +73,9 @@ export function GameFormatSelector({ value, onChange, disabled }: GameFormatSele
             </Text>
             <Text
               style={{
-                fontSize: 13,
-                color: isSelected ? 'rgba(255, 255, 255, 0.9)' : '#6B7280',
-                lineHeight: 18,
+                fontSize: 12,
+                color: isSelected ? '#FFFFFF' : '#6B7280',
+                lineHeight: 17,
               }}
             >
               {format.description}

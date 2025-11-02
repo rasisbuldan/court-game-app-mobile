@@ -372,25 +372,36 @@ type Player = Database['public']['Tables']['players']['Row'];
 
 ## Known Limitations & Future Work
 
+> **📋 For a comprehensive list of unimplemented features, TODOs, and work-in-progress items, see [UNIMPLEMENTED.md](./UNIMPLEMENTED.md)**
+
 ### ✅ Implemented
 - Authentication (email/password)
-- Tournament list with pull-to-refresh
-- Basic session view (leaderboard)
-- Offline caching with React Query
+- Tournament creation with Reclub import
+- Session management (create, view, edit)
+- Score entry and round generation
+- Leaderboard with sorting
+- Statistics (partnerships, head-to-head)
+- Event history with export
+- Player management (add, status, reassign)
+- Club management
+- Offline support with queue sync
+- Profile management with avatar upload
 
-### 🚧 In Progress
-- Complete session screen with tabs
-- Score entry interface
-- Round generation
-- Player status management
+### 🚧 In Progress / Needs Work
+- Settings persistence (toggles exist but don't save)
+- Excessive console logging (needs cleanup)
+- Public results sharing page
+- Push notifications infrastructure
+- Demo files organization
 
 ### 🔜 Planned
-- Tournament creation wizard
-- Session sharing with PIN
-- Real-time updates
+- Subscription/premium features
+- Real-time updates with Supabase Realtime
 - Push notifications
 - Live Activities (iOS)
 - Widgets (iOS/Android)
+- Analytics integration
+- Localization (i18n)
 - Performance optimizations
 
 ## Error Handling
@@ -452,19 +463,128 @@ pnpm install
 
 ## Testing
 
-### Component Testing
-```typescript
-import { render, screen } from '@testing-library/react-native';
+> **📋 For comprehensive testing strategy, tooling, and roadmap, see [TESTING_STRATEGY.md](./TESTING_STRATEGY.md)**
 
-test('renders login screen', () => {
-  render(<LoginScreen />);
-  expect(screen.getByText('Welcome back!')).toBeTruthy();
+### Quick Start
+
+**Run all tests:**
+```bash
+yarn test
+```
+
+**Run tests in watch mode:**
+```bash
+yarn test:watch
+```
+
+**Run with coverage:**
+```bash
+yarn test:coverage
+```
+
+### Current Test Coverage
+
+- **Unit Tests:** ~2% coverage (4 test files)
+- **Integration Tests:** 0%
+- **E2E Tests:** 0%
+- **Target:** 70% coverage
+
+### Example Component Test
+
+```typescript
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { LoginScreen } from '../LoginScreen';
+
+// Create wrapper with providers
+const createWrapper = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  return ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+};
+
+describe('LoginScreen', () => {
+  it('renders login form', () => {
+    const { getByPlaceholderText, getByText } = render(
+      <LoginScreen />,
+      { wrapper: createWrapper() }
+    );
+
+    expect(getByPlaceholderText('Email')).toBeTruthy();
+    expect(getByPlaceholderText('Password')).toBeTruthy();
+    expect(getByText('Sign In')).toBeTruthy();
+  });
+
+  it('validates email format', async () => {
+    const { getByPlaceholderText, getByText } = render(
+      <LoginScreen />,
+      { wrapper: createWrapper() }
+    );
+
+    const emailInput = getByPlaceholderText('Email');
+    fireEvent.changeText(emailInput, 'invalid-email');
+    fireEvent.press(getByText('Sign In'));
+
+    await waitFor(() => {
+      expect(getByText('Invalid email')).toBeTruthy();
+    });
+  });
 });
 ```
 
-### E2E Testing (Future)
-- Use Detox or Maestro
-- Test critical flows (auth, create tournament, score entry)
+### Test File Organization
+
+```
+packages/mobile/
+├── app/
+│   └── (auth)/
+│       ├── login.tsx
+│       └── __tests__/
+│           └── login.test.tsx
+├── components/
+│   └── session/
+│       ├── LeaderboardTab.tsx
+│       └── __tests__/
+│           └── LeaderboardTab.test.tsx
+├── hooks/
+│   └── __tests__/
+│       └── useAuth.test.ts
+├── __mocks__/
+│   ├── supabase.ts
+│   └── handlers.ts
+└── __tests__/
+    └── factories/
+        ├── sessionFactory.ts
+        └── playerFactory.ts
+```
+
+### Testing Roadmap
+
+**Phase 1 (Weeks 1-2):** Foundation
+- Set up test infrastructure
+- Achieve 30% unit test coverage
+- Create test data factories
+
+**Phase 2 (Weeks 3-4):** Core Coverage
+- Achieve 60% unit test coverage
+- Add integration tests for critical flows
+- Set up CI/CD
+
+**Phase 3 (Weeks 5-6):** E2E Testing
+- Set up Maestro for E2E tests
+- Create smoke tests
+- Run E2E in CI
+
+**Phase 4 (Weeks 7-8):** Advanced
+- Visual regression testing
+- Performance monitoring
+- Achieve 70% coverage
 
 ## Best Practices
 
@@ -505,6 +625,78 @@ import { useRouter } from 'expo-router';
 // RIGHT - Use active states
 <TouchableOpacity activeOpacity={0.7}>
 ```
+
+## Claude Code Productivity
+
+### Slash Commands
+
+Custom commands available in `.claude/commands/` for faster development:
+
+#### Testing Commands
+- **`/test-component [path]`** - Generate comprehensive unit tests for a component
+  - Example: `/test-component components/session/RoundsTab.tsx`
+  - Creates test file with full coverage (rendering, interactions, edge cases)
+  - Follows LeaderboardTab.test.tsx patterns
+
+- **`/test-hook [path]`** - Generate unit tests for a React hook
+  - Example: `/test-hook hooks/useAuth.ts`
+  - Tests initial state, actions, side effects, and cleanup
+  - Uses @testing-library/react-hooks
+
+- **`/test-integration [name]`** - Write integration tests for workflows
+  - Example: `/test-integration "Score Entry Flow"`
+  - Tests complete user journeys across multiple screens
+  - Includes happy path, errors, and edge cases
+
+#### Development Commands
+- **`/create-component [name]`** - Scaffold new component with tests
+  - Example: `/create-component session/MatchCard`
+  - Creates component + test file with proper structure
+  - Includes TypeScript types and NativeWind styling
+
+- **`/fix-types [path]`** - Fix TypeScript errors in file or project
+  - Example: `/fix-types` or `/fix-types components/session/RoundsTab.tsx`
+  - Analyzes and fixes type errors automatically
+  - Provides detailed report of changes
+
+- **`/pre-commit`** - Run all checks before committing
+  - Runs typecheck, linting, tests
+  - Checks for console.logs and debug code
+  - Ensures code quality before commit
+
+### Test Data Factories
+
+Reusable factory functions in `__tests__/factories/`:
+
+```typescript
+import { playerFactory, matchFactory, roundFactory, createTournamentData } from '../factories';
+
+// Create individual objects
+const player = playerFactory({ name: 'Alice', rating: 8 });
+const match = matchFactory({ team1Score: 15, team2Score: 9 });
+const round = roundFactory({ roundNumber: 1 });
+
+// Create complete tournament data
+const { players, rounds, session } = createTournamentData(8, 3);
+
+// Create test wrapper with providers
+const wrapper = createTestWrapper();
+```
+
+### Agent Usage Guidelines
+
+**When to use agents:**
+- **Explore Agent** (medium thoroughness): Finding files, understanding codebase structure
+- **General-Purpose Agent**: Complex refactoring, multi-file operations
+- **Plan Agent**: Planning multi-step features before implementation
+
+**Note:** `unit-test-engineer` agent has tool conflicts - use slash commands instead for testing.
+
+### Context Files
+
+- **`.claude/context.md`** - Project-specific context and patterns
+- **`.claude/commands/*.md`** - Custom slash command definitions
+- **`.clauignore`** - Files to exclude from agent operations
 
 ## Resources
 

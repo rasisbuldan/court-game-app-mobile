@@ -1,6 +1,7 @@
-import { View, Text, TextInput, TouchableOpacity, FlatList, Platform } from 'react-native';
-import { useState } from 'react';
-import { X, User } from 'lucide-react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, Platform, Alert } from 'react-native';
+import { useState, useRef } from 'react';
+import { useRouter } from 'expo-router';
+import { X, User, Lock } from 'lucide-react-native';
 import { PlayerFormData, Gender } from '../../hooks/usePlayerForm';
 import { GameType } from '../../hooks/useSessionForm';
 
@@ -13,6 +14,7 @@ interface PlayerManagerProps {
   onPartnerChange: (playerId: string, partnerId: string | undefined) => void;
   gameType: GameType;
   onImport: () => void;
+  canImportFromReclub?: boolean; // Subscription-based feature access
 }
 
 export function PlayerManager({
@@ -24,9 +26,13 @@ export function PlayerManager({
   onPartnerChange,
   gameType,
   onImport,
+  canImportFromReclub = false, // Default to false (locked) for security
 }: PlayerManagerProps) {
+  const router = useRouter();
   const [playerName, setPlayerName] = useState('');
   const [player2Name, setPlayer2Name] = useState('');
+  const playerInputRef = useRef<TextInput>(null);
+  const player2InputRef = useRef<TextInput>(null);
 
   const isFixedPartner = gameType === 'fixed_partner';
 
@@ -35,6 +41,9 @@ export function PlayerManager({
       try {
         onAdd(playerName.trim());
         setPlayerName('');
+        // Keep keyboard open - refocus immediately without timeout
+        // On iOS, this prevents the keyboard from dismissing
+        playerInputRef.current?.focus();
       } catch (error) {
         // Error handled by parent
       }
@@ -47,6 +56,8 @@ export function PlayerManager({
         onAddPair(playerName.trim(), player2Name.trim());
         setPlayerName('');
         setPlayer2Name('');
+        // Keep keyboard open - refocus first input immediately
+        playerInputRef.current?.focus();
       } catch (error) {
         // Error handled by parent
       }
@@ -101,62 +112,90 @@ export function PlayerManager({
         </View>
 
         {/* Import Button */}
-        <TouchableOpacity
-          onPress={onImport}
-          style={{
-            backgroundColor: 'rgba(55, 65, 81, 0.85)',
-            borderRadius: 12,
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-          }}
-        >
-          <Text style={{ fontSize: 12, fontWeight: '600', color: '#FFFFFF' }}>
-            Import from Reclub
-          </Text>
-        </TouchableOpacity>
+        <View>
+          <TouchableOpacity
+            onPress={() => {
+              if (!canImportFromReclub) {
+                router.push('/(tabs)/subscription');
+                return;
+              }
+              onImport();
+            }}
+            activeOpacity={canImportFromReclub ? 0.7 : 1}
+            style={{
+              backgroundColor: canImportFromReclub ? 'rgba(55, 65, 81, 0.85)' : 'rgba(156, 163, 175, 0.4)',
+              borderRadius: 12,
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              opacity: canImportFromReclub ? 1 : 0.6,
+            }}
+          >
+            {!canImportFromReclub && <Lock color="#6B7280" size={12} strokeWidth={2.5} />}
+            <Text style={{ fontSize: 12, fontWeight: '600', color: canImportFromReclub ? '#FFFFFF' : '#6B7280' }}>
+              Import from Reclub
+            </Text>
+          </TouchableOpacity>
+          {!canImportFromReclub && (
+            <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4, fontStyle: 'italic' }}>
+              Upgrade account to use feature
+            </Text>
+          )}
+        </View>
       </View>
 
       {/* Add Player Form */}
       {isFixedPartner ? (
         <View style={{ gap: 8 }}>
+          <Text style={{ fontSize: 12, color: '#6B7280', fontStyle: 'italic' }}>
+            Add players in pairs - they'll be permanent partners for the tournament
+          </Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <TextInput
+              ref={playerInputRef}
               value={playerName}
               onChangeText={setPlayerName}
               placeholder="Player 1 name"
               placeholderTextColor="#9CA3AF"
               style={{
                 flex: 1,
-                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                backgroundColor: '#FFFFFF',
                 borderWidth: 1,
-                borderColor: 'rgba(209, 213, 219, 0.5)',
-                borderRadius: 12,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
+                borderColor: '#D1D5DB',
+                borderRadius: 16,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
                 fontSize: 14,
                 color: '#111827',
               }}
-              onSubmitEditing={handleAddPair}
+              onSubmitEditing={() => player2InputRef.current?.focus()}
               returnKeyType="next"
+              blurOnSubmit={false}
+              enablesReturnKeyAutomatically
             />
             <TextInput
+              ref={player2InputRef}
               value={player2Name}
               onChangeText={setPlayer2Name}
               placeholder="Player 2 name"
               placeholderTextColor="#9CA3AF"
               style={{
                 flex: 1,
-                backgroundColor: 'rgba(255, 255, 255, 0.7)',
+                backgroundColor: '#FFFFFF',
                 borderWidth: 1,
-                borderColor: 'rgba(209, 213, 219, 0.5)',
-                borderRadius: 12,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
+                borderColor: '#D1D5DB',
+                borderRadius: 16,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
                 fontSize: 14,
                 color: '#111827',
               }}
               onSubmitEditing={handleAddPair}
               returnKeyType="done"
+              blurOnSubmit={false}
+              enablesReturnKeyAutomatically
             />
           </View>
           <TouchableOpacity
@@ -164,7 +203,7 @@ export function PlayerManager({
             style={{
               backgroundColor: '#EF4444',
               borderRadius: 12,
-              paddingVertical: 10,
+              paddingVertical: 12,
               alignItems: 'center',
             }}
           >
@@ -176,23 +215,26 @@ export function PlayerManager({
       ) : (
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TextInput
+            ref={playerInputRef}
             value={playerName}
             onChangeText={setPlayerName}
             placeholder="Player name"
             placeholderTextColor="#9CA3AF"
             style={{
               flex: 1,
-              backgroundColor: 'rgba(255, 255, 255, 0.7)',
+              backgroundColor: '#FFFFFF',
               borderWidth: 1,
-              borderColor: 'rgba(209, 213, 219, 0.5)',
-              borderRadius: 12,
-              paddingHorizontal: 12,
-              paddingVertical: 10,
+              borderColor: '#D1D5DB',
+              borderRadius: 16,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
               fontSize: 14,
               color: '#111827',
             }}
             onSubmitEditing={handleAddPlayer}
             returnKeyType="done"
+            blurOnSubmit={false}
+            enablesReturnKeyAutomatically
           />
           <TouchableOpacity
             onPress={handleAddPlayer}
@@ -200,7 +242,7 @@ export function PlayerManager({
               backgroundColor: '#EF4444',
               borderRadius: 12,
               paddingHorizontal: 16,
-              paddingVertical: 10,
+              paddingVertical: 12,
               justifyContent: 'center',
             }}
           >
@@ -223,9 +265,9 @@ export function PlayerManager({
               <View
                 key={player.id}
                 style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.5)',
+                  backgroundColor: '#FFFFFF',
                   borderWidth: 1,
-                  borderColor: 'rgba(209, 213, 219, 0.5)',
+                  borderColor: '#D1D5DB',
                   borderRadius: 12,
                   padding: 12,
                   flexDirection: 'row',
@@ -261,27 +303,31 @@ export function PlayerManager({
                     color: '#111827',
                   }}
                   numberOfLines={1}
+                  ellipsizeMode="tail"
                 >
                   {player.name}
                 </Text>
 
-                {/* Partner Indicator/Selector (Fixed Partner Mode) */}
-                {isFixedPartner && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    {currentPartner ? (
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          color: '#6B7280',
-                          fontWeight: '500',
-                        }}
-                        numberOfLines={1}
-                      >
-                        ↔ {currentPartner.name}
-                      </Text>
-                    ) : (
-                      <Text style={{ fontSize: 12, color: '#9CA3AF' }}>No partner</Text>
-                    )}
+                {/* Partner Indicator (Fixed Partner Mode) */}
+                {isFixedPartner && currentPartner && (
+                  <View style={{
+                    backgroundColor: '#F3F4F6',
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 8,
+                    maxWidth: 100,
+                  }}>
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color: '#6B7280',
+                        fontWeight: '600',
+                      }}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      ↔ {currentPartner.name}
+                    </Text>
                   </View>
                 )}
 

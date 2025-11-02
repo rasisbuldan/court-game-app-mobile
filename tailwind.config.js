@@ -27,6 +27,9 @@ module.exports = {
         warning: '#F59E0B',
         error: '#EF4444',
       },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
     },
   },
   plugins: [],

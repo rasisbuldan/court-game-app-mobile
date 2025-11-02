@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, Platform, Switch } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Platform, Switch, Alert } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'expo-router';
 import {
@@ -19,26 +19,89 @@ import {
   MessageSquare,
   Award,
   Calendar,
-  Palette
+  Palette,
+  Code,
+  RefreshCw,
+  Settings as SettingsIcon
 } from 'lucide-react-native';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Toast from 'react-native-toast-message';
+import { useNotificationPreferences, useUpdateNotificationPreferences } from '../../hooks/useNotificationPreferences';
+import { areNotificationsEnabled } from '../../services/notifications';
+import {
+  isSimulatorAllowed,
+  loadSimulatorState,
+  saveSimulatorState,
+  clearSimulatorState,
+  toggleSimulator,
+  updateSubscriptionState,
+  applyPreset,
+  getAvailablePresets,
+  getPresetLabel,
+  getPresetDescription,
+  type SimulatorState,
+  type SimulatorSubscriptionTier,
+  type SimulatorPreset
+} from '../../utils/accountSimulator';
+import { useSubscription } from '../../hooks/useSubscription';
 
 export default function SettingsScreen() {
   const { user, signOut } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // Toggle states
+  // Notification preferences from Supabase
+  const { data: preferences, isLoading } = useNotificationPreferences(user?.id);
+  const updatePreferences = useUpdateNotificationPreferences();
+
+  // Subscription (for refetching when simulator changes)
+  const { refetch: refetchSubscription } = useSubscription();
+
+  // Local toggle states
   const [pushNotifications, setPushNotifications] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [sessionReminders, setSessionReminders] = useState(true);
   const [clubInvites, setClubInvites] = useState(true);
   const [matchResults, setMatchResults] = useState(true);
+  const [sessionUpdates, setSessionUpdates] = useState(true);
+  const [clubAnnouncements, setClubAnnouncements] = useState(true);
   const [soundEffects, setSoundEffects] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+
+  // Account Simulator state (dev/test accounts only)
+  const [simulatorState, setSimulatorState] = useState<SimulatorState | null>(null);
+  const isDevAccount = isSimulatorAllowed(user?.email);
+
+  // Sync local state with preferences from database
+  useEffect(() => {
+    if (preferences) {
+      setPushNotifications(preferences.push_enabled);
+      setEmailNotifications(preferences.email_enabled);
+      setSessionReminders(preferences.session_reminders);
+      setClubInvites(preferences.club_invites);
+      setMatchResults(preferences.match_results);
+      setSessionUpdates(preferences.session_updates);
+      setClubAnnouncements(preferences.club_announcements);
+    }
+  }, [preferences]);
+
+  // Load simulator state for dev accounts
+  useEffect(() => {
+    if (isDevAccount) {
+      loadSimulatorState().then(setSimulatorState);
+    }
+  }, [isDevAccount]);
+
+  // Helper to update preferences
+  const updatePreference = (key: string, value: boolean) => {
+    if (!user) return;
+    updatePreferences.mutate({
+      userId: user.id,
+      preferences: { [key]: value },
+    });
+  };
 
   const handleSignOut = async () => {
     try {
@@ -56,11 +119,119 @@ export default function SettingsScreen() {
   };
 
   const handleSubscription = () => {
-    Toast.show({
-      type: 'info',
-      text1: 'Coming Soon',
-      text2: 'Subscription features will be available soon!',
-    });
+    router.push('/(tabs)/subscription');
+  };
+
+  // Simulator handlers
+  const handleToggleSimulator = async (enabled: boolean) => {
+    try {
+      const newState = await toggleSimulator(enabled);
+      setSimulatorState(newState);
+      refetchSubscription();
+      Toast.show({
+        type: enabled ? 'success' : 'info',
+        text1: enabled ? 'Simulator Enabled' : 'Simulator Disabled',
+        text2: enabled ? 'Using simulated account state' : 'Using real account state',
+      });
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to toggle simulator',
+      });
+    }
+  };
+
+  const handleApplyPreset = async (preset: SimulatorPreset) => {
+    try {
+      const newState = await applyPreset(preset);
+      setSimulatorState(newState);
+      refetchSubscription();
+      Toast.show({
+        type: 'success',
+        text1: 'Preset Applied',
+        text2: getPresetLabel(preset),
+      });
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to apply preset',
+      });
+    }
+  };
+
+  const handleUpdateTier = async (tier: SimulatorSubscriptionTier) => {
+    try {
+      const newState = await updateSubscriptionState({ tier });
+      setSimulatorState(newState);
+      refetchSubscription();
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to update tier',
+      });
+    }
+  };
+
+  const handleUpdateTrial = async (isTrialActive: boolean, trialDaysRemaining?: number) => {
+    try {
+      const updates: any = { isTrialActive };
+      if (trialDaysRemaining !== undefined) {
+        updates.trialDaysRemaining = trialDaysRemaining;
+      }
+      const newState = await updateSubscriptionState(updates);
+      setSimulatorState(newState);
+      refetchSubscription();
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to update trial',
+      });
+    }
+  };
+
+  const handleUpdateSessionsUsed = async (sessionsUsedThisMonth: number) => {
+    try {
+      const newState = await updateSubscriptionState({ sessionsUsedThisMonth });
+      setSimulatorState(newState);
+      refetchSubscription();
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to update sessions',
+      });
+    }
+  };
+
+  const handleResetSimulator = () => {
+    Alert.alert(
+      'Reset Simulator',
+      'This will clear all simulator overrides and return to your actual account state.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await clearSimulatorState();
+              const newState = await loadSimulatorState();
+              setSimulatorState(newState);
+              refetchSubscription();
+              Toast.show({
+                type: 'success',
+                text1: 'Simulator Reset',
+                text2: 'Using real account state',
+              });
+            } catch (error) {
+              Toast.show({
+                type: 'error',
+                text1: 'Failed to reset simulator',
+              });
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -211,7 +382,10 @@ export default function SettingsScreen() {
               </View>
               <Switch
                 value={pushNotifications}
-                onValueChange={setPushNotifications}
+                onValueChange={(value) => {
+                  setPushNotifications(value);
+                  updatePreference('push_enabled', value);
+                }}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
                 thumbColor={Platform.OS === 'ios' ? undefined : pushNotifications ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
@@ -241,7 +415,10 @@ export default function SettingsScreen() {
               </View>
               <Switch
                 value={emailNotifications}
-                onValueChange={setEmailNotifications}
+                onValueChange={(value) => {
+                  setEmailNotifications(value);
+                  updatePreference('email_enabled', value);
+                }}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
                 thumbColor={Platform.OS === 'ios' ? undefined : emailNotifications ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
@@ -271,7 +448,10 @@ export default function SettingsScreen() {
               </View>
               <Switch
                 value={sessionReminders}
-                onValueChange={setSessionReminders}
+                onValueChange={(value) => {
+                  setSessionReminders(value);
+                  updatePreference('session_reminders', value);
+                }}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
                 thumbColor={Platform.OS === 'ios' ? undefined : sessionReminders ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
@@ -301,7 +481,10 @@ export default function SettingsScreen() {
               </View>
               <Switch
                 value={clubInvites}
-                onValueChange={setClubInvites}
+                onValueChange={(value) => {
+                  setClubInvites(value);
+                  updatePreference('club_invites', value);
+                }}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
                 thumbColor={Platform.OS === 'ios' ? undefined : clubInvites ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
@@ -329,7 +512,10 @@ export default function SettingsScreen() {
               </View>
               <Switch
                 value={matchResults}
-                onValueChange={setMatchResults}
+                onValueChange={(value) => {
+                  setMatchResults(value);
+                  updatePreference('match_results', value);
+                }}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
                 thumbColor={Platform.OS === 'ios' ? undefined : matchResults ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
@@ -546,6 +732,251 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Account Simulator Section (Dev/Test Accounts Only) */}
+        {isDevAccount && simulatorState && (
+          <View style={{ gap: 8, marginBottom: 24 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                Account Simulator
+              </Text>
+              {simulatorState.enabled && (
+                <View style={{ backgroundColor: '#8B5CF6', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFFFFF' }}>ACTIVE</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 20,
+              overflow: 'hidden',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.06,
+              shadowRadius: 12,
+              elevation: 3,
+              borderWidth: simulatorState.enabled ? 2 : 0,
+              borderColor: simulatorState.enabled ? '#8B5CF6' : 'transparent',
+            }}>
+              {/* Enable/Disable Toggle */}
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#F3F4F6',
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                  <View style={{ width: 40, height: 40, backgroundColor: '#EDE9FE', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+                    <Code color="#8B5CF6" size={20} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>Enable Simulator</Text>
+                    <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>Override account state</Text>
+                  </View>
+                </View>
+                <Switch
+                  value={simulatorState.enabled}
+                  onValueChange={handleToggleSimulator}
+                  trackColor={{ false: '#E5E7EB', true: '#8B5CF6' }}
+                  thumbColor={Platform.OS === 'ios' ? undefined : simulatorState.enabled ? '#FFFFFF' : '#F3F4F6'}
+                  ios_backgroundColor="#E5E7EB"
+                />
+              </View>
+
+              {/* Quick Presets */}
+              {simulatorState.enabled && (
+                <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827', marginBottom: 12 }}>Quick Presets</Text>
+                  <View style={{ gap: 8 }}>
+                    {getAvailablePresets().map((preset) => (
+                      <TouchableOpacity
+                        key={preset}
+                        onPress={() => handleApplyPreset(preset)}
+                        style={{
+                          backgroundColor: '#F9FAFB',
+                          borderRadius: 12,
+                          padding: 12,
+                          borderWidth: 1,
+                          borderColor: '#E5E7EB',
+                        }}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', marginBottom: 2 }}>
+                          {getPresetLabel(preset)}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#6B7280' }}>
+                          {getPresetDescription(preset)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Current State Display */}
+              {simulatorState.enabled && (
+                <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827', marginBottom: 12 }}>Current State</Text>
+                  <View style={{ gap: 8 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 13, color: '#6B7280' }}>Tier:</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827', textTransform: 'capitalize' }}>
+                        {simulatorState.subscription.tier}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 13, color: '#6B7280' }}>Trial Active:</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827' }}>
+                        {simulatorState.subscription.isTrialActive ? 'Yes' : 'No'}
+                      </Text>
+                    </View>
+                    {simulatorState.subscription.isTrialActive && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 13, color: '#6B7280' }}>Trial Days:</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827' }}>
+                          {simulatorState.subscription.trialDaysRemaining}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 13, color: '#6B7280' }}>Sessions Used:</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827' }}>
+                        {simulatorState.subscription.sessionsUsedThisMonth}/4
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Manual Controls */}
+              {simulatorState.enabled && (
+                <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#111827', marginBottom: 12 }}>Manual Controls</Text>
+
+                  {/* Tier Selection */}
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>Subscription Tier</Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {(['free', 'personal', 'club'] as SimulatorSubscriptionTier[]).map((tier) => (
+                        <TouchableOpacity
+                          key={tier}
+                          onPress={() => handleUpdateTier(tier)}
+                          style={{
+                            flex: 1,
+                            backgroundColor: simulatorState.subscription.tier === tier ? '#8B5CF6' : '#F9FAFB',
+                            borderRadius: 8,
+                            paddingVertical: 10,
+                            alignItems: 'center',
+                            borderWidth: 1,
+                            borderColor: simulatorState.subscription.tier === tier ? '#8B5CF6' : '#E5E7EB',
+                          }}
+                        >
+                          <Text style={{
+                            fontSize: 13,
+                            fontWeight: '600',
+                            color: simulatorState.subscription.tier === tier ? '#FFFFFF' : '#6B7280',
+                            textTransform: 'capitalize',
+                          }}>
+                            {tier}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Trial Toggle */}
+                  <View style={{ marginBottom: 16 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Text style={{ fontSize: 12, color: '#6B7280' }}>Trial Active</Text>
+                      <Switch
+                        value={simulatorState.subscription.isTrialActive}
+                        onValueChange={(value) => handleUpdateTrial(value, value ? 14 : 0)}
+                        trackColor={{ false: '#E5E7EB', true: '#8B5CF6' }}
+                        thumbColor={Platform.OS === 'ios' ? undefined : '#F3F4F6'}
+                        ios_backgroundColor="#E5E7EB"
+                      />
+                    </View>
+                    {simulatorState.subscription.isTrialActive && (
+                      <View style={{ gap: 8 }}>
+                        <Text style={{ fontSize: 12, color: '#6B7280' }}>Trial Days: {simulatorState.subscription.trialDaysRemaining}</Text>
+                        <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
+                          {[1, 2, 7, 14].map((days) => (
+                            <TouchableOpacity
+                              key={days}
+                              onPress={() => handleUpdateTrial(true, days)}
+                              style={{
+                                backgroundColor: '#F9FAFB',
+                                borderRadius: 6,
+                                paddingHorizontal: 12,
+                                paddingVertical: 6,
+                                borderWidth: 1,
+                                borderColor: '#E5E7EB',
+                              }}
+                            >
+                              <Text style={{ fontSize: 11, color: '#6B7280' }}>{days}d</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Sessions Used */}
+                  <View>
+                    <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>
+                      Sessions Used: {simulatorState.subscription.sessionsUsedThisMonth}/4
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 4 }}>
+                      {[0, 1, 2, 3, 4].map((count) => (
+                        <TouchableOpacity
+                          key={count}
+                          onPress={() => handleUpdateSessionsUsed(count)}
+                          style={{
+                            flex: 1,
+                            backgroundColor: simulatorState.subscription.sessionsUsedThisMonth === count ? '#8B5CF6' : '#F9FAFB',
+                            borderRadius: 6,
+                            paddingVertical: 8,
+                            alignItems: 'center',
+                            borderWidth: 1,
+                            borderColor: simulatorState.subscription.sessionsUsedThisMonth === count ? '#8B5CF6' : '#E5E7EB',
+                          }}
+                        >
+                          <Text style={{
+                            fontSize: 12,
+                            fontWeight: '600',
+                            color: simulatorState.subscription.sessionsUsedThisMonth === count ? '#FFFFFF' : '#6B7280',
+                          }}>
+                            {count}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Reset Button */}
+              {simulatorState.enabled && (
+                <TouchableOpacity
+                  onPress={handleResetSimulator}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    paddingVertical: 14,
+                  }}
+                >
+                  <RefreshCw color="#EF4444" size={16} />
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#EF4444' }}>Reset to Actual State</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
 
         {/* Dev Tools Section */}
         <View style={{ gap: 8, marginBottom: 24 }}>

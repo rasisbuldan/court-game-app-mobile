@@ -1,6 +1,6 @@
 import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, ChevronRight, Layout, Navigation, PlusSquare, BarChart3 } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Layout, Navigation, PlusSquare, BarChart3, Swords, Users, Layers } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function LayoutPreviewsScreen() {
@@ -39,6 +39,30 @@ export default function LayoutPreviewsScreen() {
       subtitle: 'View 8 layout options',
       color: '#F59E0B', // Amber
     },
+    {
+      id: 'head-to-head',
+      route: '/(tabs)/head-to-head-demo',
+      icon: Swords,
+      title: 'Head-to-Head Cards',
+      subtitle: 'View 7 card designs',
+      color: '#8B5CF6', // Purple
+    },
+    {
+      id: 'partnerships',
+      route: '/(tabs)/partnerships-demo',
+      icon: Users,
+      title: 'Partnership Cards',
+      subtitle: 'View 6 card designs',
+      color: '#EC4899', // Pink
+    },
+    {
+      id: 'backgrounds',
+      route: '/(tabs)/background-demo',
+      icon: Layers,
+      title: 'Background Designs',
+      subtitle: 'View 5 depth concepts',
+      color: '#14B8A6', // Teal
+    },
   ];
 
   return (
@@ -56,7 +80,7 @@ export default function LayoutPreviewsScreen() {
         }}
       >
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => router.push('/(tabs)/settings')}
           style={{
             width: 40,
             height: 40,

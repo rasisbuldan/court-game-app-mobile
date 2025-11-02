@@ -8,11 +8,13 @@ import {
   KeyboardAvoidingView,
   ActivityIndicator,
   Image,
+  Alert,
 } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { useCreateClub, useOwnedClubs } from '../../hooks/useClubs';
+import { useSubscription } from '../../hooks/useSubscription';
 import { supabase } from '../../config/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, Check, Camera, Users } from 'lucide-react-native';
@@ -23,6 +25,7 @@ export default function CreateClubScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { featureAccess } = useSubscription();
 
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
@@ -129,14 +132,26 @@ export default function CreateClubScreen() {
 
     let isValid = true;
 
-    // Check 3-club limit
-    if (ownedClubs && ownedClubs.length >= 3) {
-      Toast.show({
-        type: 'error',
-        text1: 'Club limit reached',
-        text2: 'You can only create up to 3 clubs',
-      });
-      return false;
+    // Check subscription-based club limit
+    if (featureAccess && !featureAccess.canCreateMultipleClubs) {
+      // Free tier: max 1 club
+      if (ownedClubs && ownedClubs.length >= featureAccess.maxClubs) {
+        Alert.alert(
+          'Club Limit Reached',
+          'Free tier is limited to 1 club.\n\nUpgrade to Personal to create unlimited clubs and unlock:\n• Unlimited sessions\n• Unlimited courts\n• Reclub import\n• Multiple clubs\n\nPrice: IDR 49,000/month or IDR 299,000/year',
+          [
+            { text: 'Maybe Later', style: 'cancel' },
+            {
+              text: 'Upgrade',
+              onPress: () => {
+                // Navigation handled via Settings > Subscription
+                router.push('/(tabs)/subscription');
+              }
+            }
+          ]
+        );
+        return false;
+      }
     }
 
     // Name validation
@@ -165,15 +180,13 @@ export default function CreateClubScreen() {
   };
 
   const handleCreate = async () => {
-    console.log('[CreateClub] handleCreate called');
+    // ISSUE #11 FIX: Removed debug console.log statements
 
     if (!validateForm()) {
-      console.log('[CreateClub] Form validation failed');
       return;
     }
 
     if (!user?.id) {
-      console.log('[CreateClub] No user ID found');
       Toast.show({
         type: 'error',
         text1: 'Authentication required',
@@ -181,13 +194,6 @@ export default function CreateClubScreen() {
       });
       return;
     }
-
-    console.log('[CreateClub] Starting mutation with data:', {
-      name: name.trim(),
-      bio: bio.trim() || undefined,
-      logo_url: logoUrl || undefined,
-      owner_id: user.id,
-    });
 
     createClubMutation.mutate(
       {
@@ -198,12 +204,11 @@ export default function CreateClubScreen() {
       },
       {
         onSuccess: (data) => {
-          console.log('[CreateClub] Mutation onSuccess called with data:', data);
           // Use replace to avoid navigation stack issues
           router.replace('/(tabs)/profile');
-          console.log('[CreateClub] Navigation to profile triggered');
         },
         onError: (error) => {
+          // Keep console.error for actual errors (appropriate)
           console.error('[CreateClub] Mutation onError called:', error);
         },
       }

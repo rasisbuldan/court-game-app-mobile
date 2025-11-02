@@ -40,6 +40,7 @@ import { formatDistance } from 'date-fns';
 import { useClubs, useOwnedClubs } from '../../hooks/useClubs';
 import { useClubMemberCount } from '../../hooks/useClubMembers';
 import ClubCard from '../../components/clubs/ClubCard';
+import { Logger } from '../../utils/logger';
 
 interface UserProfile {
   id: string;
@@ -93,9 +94,8 @@ export default function ProfileScreen() {
 
   const loadProfile = async () => {
     try {
-      console.log('Loading profile for user:', user?.id);
+      // ISSUE #11 FIX: Removed debug console.log statements
       if (!user) {
-        console.log('No user found, returning');
         return;
       }
 
@@ -106,12 +106,8 @@ export default function ProfileScreen() {
         .eq('id', user.id)
         .single();
 
-      console.log('Profile data:', profileData);
-      console.log('Profile error:', profileError);
-
       if (profileError && profileError.code === 'PGRST116') {
         // Profile doesn't exist, create it
-        console.log('Profile not found, creating new profile');
         const { data: newProfile, error: createError } = await supabase
           .from('profiles')
           .insert({
@@ -122,9 +118,6 @@ export default function ProfileScreen() {
           })
           .select()
           .single();
-
-        console.log('New profile created:', newProfile);
-        console.log('Create error:', createError);
 
         if (createError) throw createError;
         setProfile(newProfile);
@@ -143,7 +136,11 @@ export default function ProfileScreen() {
       // Load session statistics
       await loadStats(user.id);
     } catch (error: any) {
-      console.error('Error loading profile:', error);
+      Logger.error('Profile: Failed to load profile', error, {
+        userId: user?.id,
+        action: 'load_profile',
+        screen: 'Profile',
+      });
       Toast.show({
         type: 'error',
         text1: 'Error',
@@ -281,7 +278,11 @@ export default function ProfileScreen() {
         total_rounds_played: totalRoundsPlayed,
       });
     } catch (error: any) {
-      console.error('Error loading stats:', error);
+      Logger.error('Profile: Failed to load stats', error, {
+        userId,
+        action: 'load_stats',
+        screen: 'Profile',
+      });
     }
   };
 
@@ -365,7 +366,11 @@ export default function ProfileScreen() {
         text2: 'Profile picture updated!',
       });
     } catch (error: any) {
-      console.error('Error uploading avatar:', error);
+      Logger.error('Profile: Failed to upload avatar', error, {
+        userId: profile?.id,
+        action: 'upload_avatar',
+        screen: 'Profile',
+      });
       Toast.show({
         type: 'error',
         text1: 'Error',
@@ -395,7 +400,11 @@ export default function ProfileScreen() {
         text2: 'Display name updated',
       });
     } catch (error: any) {
-      console.error('Error updating display name:', error);
+      Logger.error('Profile: Failed to update display name', error, {
+        userId: profile?.id,
+        action: 'update_display_name',
+        screen: 'Profile',
+      });
       Toast.show({
         type: 'error',
         text1: 'Error',
@@ -423,7 +432,11 @@ export default function ProfileScreen() {
         text2: 'Username updated',
       });
     } catch (error: any) {
-      console.error('Error updating username:', error);
+      Logger.error('Profile: Failed to update username', error, {
+        userId: profile?.id,
+        action: 'update_username',
+        screen: 'Profile',
+      });
       Toast.show({
         type: 'error',
         text1: 'Error',

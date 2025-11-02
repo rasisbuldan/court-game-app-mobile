@@ -1,5 +1,5 @@
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useState, useCallback, memo } from 'react';
 import { Trophy, Medal, Award, MoreVertical, UserCog } from 'lucide-react-native';
 import { Player } from '@courtster/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -19,7 +19,8 @@ interface LeaderboardTabProps {
   allRounds: any[];
 }
 
-export function LeaderboardTab({
+// PHASE 2 OPTIMIZATION: Memoize component to prevent unnecessary re-renders
+export const LeaderboardTab = memo(function LeaderboardTab({
   players,
   sortBy,
   onSortChange,
@@ -102,9 +103,10 @@ export function LeaderboardTab({
 
       if (isOnline) {
         // Online: update immediately
+        // NOTE: Pass JavaScript array directly - Supabase converts to JSONB automatically
         const { error } = await supabase
           .from('game_sessions')
-          .update({ round_data: JSON.stringify(updatedRounds) })
+          .update({ round_data: updatedRounds })
           .eq('id', sessionId);
 
         if (error) throw error;
@@ -158,7 +160,8 @@ export function LeaderboardTab({
     reassignPlayerMutation.mutate({ oldPlayerId, newPlayerId });
   };
 
-  const getMedalIcon = (position: number) => {
+  // PHASE 2 OPTIMIZATION: Memoize helper functions
+  const getMedalIcon = useCallback((position: number) => {
     switch (position) {
       case 0:
         return <Trophy color="#EAB308" size={20} />;
@@ -169,9 +172,9 @@ export function LeaderboardTab({
       default:
         return null;
     }
-  };
+  }, []);
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = useCallback((status: string) => {
     switch (status) {
       case 'active':
         return 'bg-green-500';
@@ -184,7 +187,213 @@ export function LeaderboardTab({
       default:
         return 'bg-gray-300';
     }
-  };
+  }, []);
+
+  // PHASE 2 OPTIMIZATION: Memoized keyExtractor for FlatList
+  const keyExtractor = useCallback((player: Player) => player.id, []);
+
+  // PHASE 2 OPTIMIZATION: Memoized renderItem for FlatList
+  const renderPlayerCard = useCallback(({ item: player, index }: { item: Player; index: number }) => {
+    const isExpanded = expandedPlayer === player.id;
+
+    return (
+      <View
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 12,
+          padding: 14,
+          marginBottom: 8,
+          borderWidth: 1,
+          borderColor: index < 3 ? 'rgba(239, 68, 68, 0.15)' : '#E5E7EB',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.04,
+          shadowRadius: 4,
+          elevation: 1,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {/* Rank Badge */}
+          <View
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 16,
+              backgroundColor: index === 0 ? '#FEF3C7' : index === 1 ? '#E0E7FF' : index === 2 ? '#FED7AA' : '#F3F4F6',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 12,
+            }}
+          >
+            {index < 3 ? (
+              getMedalIcon(index)
+            ) : (
+              <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '700', color: '#6B7280' }}>
+                {index + 1}
+              </Text>
+            )}
+          </View>
+
+          {/* Name with Compensation */}
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontFamily: 'Inter', fontSize: 15, fontWeight: '600', color: '#111827' }}>
+                {player.name}
+              </Text>
+              <View className={`w-2 h-2 rounded-full ${getStatusColor(player.status)}`} />
+            </View>
+            {player.compensationPoints > 0 && (
+              <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '500', color: '#F59E0B', marginTop: 2 }}>
+                +{player.compensationPoints} bonus
+              </Text>
+            )}
+          </View>
+
+          {/* Points Column */}
+          <View style={{ width: 64, alignItems: 'center', marginRight: 12 }}>
+            <Text style={{ fontFamily: 'Inter', fontSize: 18, fontWeight: '700', color: '#EF4444' }}>
+              {player.totalPoints}
+            </Text>
+          </View>
+
+          {/* Divider */}
+          <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginRight: 12 }} />
+
+          {/* W-L-T Column */}
+          <View style={{ width: 80, alignItems: 'center', gap: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#10B981' }}>
+                {player.wins}
+              </Text>
+              <Text style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: '500', color: '#9CA3AF' }}>-</Text>
+              <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#EF4444' }}>
+                {player.losses}
+              </Text>
+              <Text style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: '500', color: '#9CA3AF' }}>-</Text>
+              <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#6B7280' }}>
+                {player.ties}
+              </Text>
+            </View>
+          </View>
+
+          {/* More Options Button */}
+          <TouchableOpacity
+            style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', marginLeft: 4 }}
+            onPress={() => setExpandedPlayer(isExpanded ? null : player.id)}
+          >
+            <MoreVertical color="#9CA3AF" size={18} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Expanded Options */}
+        {isExpanded && (
+          <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 12 }}>
+            <View>
+              <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>
+                Status
+              </Text>
+              <StatusDropdown
+                currentStatus={player.status as any}
+                onStatusChange={(newStatus) => handleStatusChange(player.id, newStatus)}
+                disabled={updateStatusMutation.isPending}
+              />
+            </View>
+
+            <View>
+              <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>
+                Additional Stats
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 16 }}>
+                <View>
+                  <Text style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: '500', color: '#9CA3AF' }}>
+                    Played
+                  </Text>
+                  <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#111827', marginTop: 2 }}>
+                    {player.playCount}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: '500', color: '#9CA3AF' }}>
+                    Sat Out
+                  </Text>
+                  <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#111827', marginTop: 2 }}>
+                    {player.sitCount}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={{ fontFamily: 'Inter', fontSize: 10, fontWeight: '500', color: '#9CA3AF' }}>
+                    Rating
+                  </Text>
+                  <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '600', color: '#111827', marginTop: 2 }}>
+                    {player.rating.toFixed(1)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                backgroundColor: '#F9FAFB',
+                borderRadius: 8,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+              }}
+              onPress={() => handleReassignClick(player)}
+              disabled={reassignPlayerMutation.isPending}
+            >
+              <UserCog color="#6B7280" size={16} />
+              <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: '#374151', flex: 1 }}>
+                Replace Player
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    );
+  }, [expandedPlayer, getMedalIcon, getStatusColor, handleStatusChange, updateStatusMutation.isPending, handleReassignClick, reassignPlayerMutation.isPending]);
+
+  // PHASE 2 OPTIMIZATION: Memoized list header component
+  const ListHeaderComponent = useCallback(() => {
+    if (players.length === 0) return null;
+
+    return (
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          marginBottom: 8,
+        }}
+      >
+        <View style={{ width: 44 }}>
+          <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '700', color: '#9CA3AF' }}>RANK</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '700', color: '#9CA3AF' }}>NAME</Text>
+        </View>
+        <View style={{ width: 64, alignItems: 'center' }}>
+          <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '700', color: '#9CA3AF' }}>PTS</Text>
+        </View>
+        <View style={{ width: 24 }} />
+        <View style={{ width: 80, alignItems: 'center' }}>
+          <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '700', color: '#9CA3AF' }}>W-L-T</Text>
+        </View>
+        <View style={{ width: 32 }} />
+      </View>
+    );
+  }, [players.length]);
+
+  // PHASE 2 OPTIMIZATION: Memoized empty component
+  const ListEmptyComponent = useCallback(() => (
+    <View className="flex-1 items-center justify-center py-12">
+      <Trophy color="#9CA3AF" size={48} />
+      <Text className="text-gray-500 mt-4">No players yet</Text>
+    </View>
+  ), []);
 
   return (
     <View className="flex-1">
@@ -213,6 +422,7 @@ export function LeaderboardTab({
           >
             <Text
               style={{
+                fontFamily: 'Inter',
                 textAlign: 'center',
                 fontWeight: '600',
                 color: sortBy === 'points' ? '#FFFFFF' : '#374151',
@@ -233,6 +443,7 @@ export function LeaderboardTab({
           >
             <Text
               style={{
+                fontFamily: 'Inter',
                 textAlign: 'center',
                 fontWeight: '600',
                 color: sortBy === 'wins' ? '#FFFFFF' : '#374151',
@@ -244,206 +455,20 @@ export function LeaderboardTab({
         </View>
       </View>
 
-      <View className="flex-1">
-        {/* Table Header */}
-        {players.length > 0 && (
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              marginBottom: 8,
-            }}
-          >
-            <View style={{ width: 44 }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF' }}>RANK</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF' }}>NAME</Text>
-            </View>
-            <View style={{ width: 64, alignItems: 'center' }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF' }}>PTS</Text>
-            </View>
-            <View style={{ width: 24 }} />
-            <View style={{ width: 80, alignItems: 'center' }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF' }}>W-L-T</Text>
-            </View>
-            <View style={{ width: 32 }} />
-          </View>
-        )}
-
-        {/* Player Cards */}
-        {players.map((player, index) => {
-          const isExpanded = expandedPlayer === player.id;
-
-          return (
-            <View
-              key={player.id}
-              style={{
-                backgroundColor: '#FFFFFF',
-                borderRadius: 12,
-                padding: 14,
-                marginBottom: 8,
-                borderWidth: 1,
-                borderColor: index < 3 ? 'rgba(239, 68, 68, 0.15)' : '#E5E7EB',
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.04,
-                shadowRadius: 4,
-                elevation: 1,
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {/* Rank Badge */}
-                <View
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: index === 0 ? '#FEF3C7' : index === 1 ? '#E0E7FF' : index === 2 ? '#FED7AA' : '#F3F4F6',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: 12,
-                  }}
-                >
-                  {index < 3 ? (
-                    getMedalIcon(index)
-                  ) : (
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#6B7280' }}>
-                      {index + 1}
-                    </Text>
-                  )}
-                </View>
-
-                {/* Name with Compensation */}
-                <View style={{ flex: 1, marginRight: 12 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>
-                      {player.name}
-                    </Text>
-                    <View className={`w-2 h-2 rounded-full ${getStatusColor(player.status)}`} />
-                  </View>
-                  {player.compensationPoints > 0 && (
-                    <Text style={{ fontSize: 11, fontWeight: '500', color: '#F59E0B', marginTop: 2 }}>
-                      +{player.compensationPoints} bonus
-                    </Text>
-                  )}
-                </View>
-
-                {/* Points Column */}
-                <View style={{ width: 64, alignItems: 'center', marginRight: 12 }}>
-                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#EF4444' }}>
-                    {player.totalPoints}
-                  </Text>
-                </View>
-
-                {/* Divider */}
-                <View style={{ width: 1, height: 28, backgroundColor: '#E5E7EB', marginRight: 12 }} />
-
-                {/* W-L-T Column */}
-                <View style={{ width: 80, alignItems: 'center', gap: 2 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#10B981' }}>
-                      {player.wins}
-                    </Text>
-                    <Text style={{ fontSize: 12, fontWeight: '500', color: '#9CA3AF' }}>-</Text>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#EF4444' }}>
-                      {player.losses}
-                    </Text>
-                    <Text style={{ fontSize: 12, fontWeight: '500', color: '#9CA3AF' }}>-</Text>
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#6B7280' }}>
-                      {player.ties}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* More Options Button */}
-                <TouchableOpacity
-                  style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', marginLeft: 4 }}
-                  onPress={() => setExpandedPlayer(isExpanded ? null : player.id)}
-                >
-                  <MoreVertical color="#9CA3AF" size={18} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Expanded Options */}
-              {isExpanded && (
-                <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 12 }}>
-                  <View>
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>
-                      Status
-                    </Text>
-                    <StatusDropdown
-                      currentStatus={player.status as any}
-                      onStatusChange={(newStatus) => handleStatusChange(player.id, newStatus)}
-                      disabled={updateStatusMutation.isPending}
-                    />
-                  </View>
-
-                  <View>
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#6B7280', marginBottom: 8 }}>
-                      Additional Stats
-                    </Text>
-                    <View style={{ flexDirection: 'row', gap: 16 }}>
-                      <View>
-                        <Text style={{ fontSize: 10, fontWeight: '500', color: '#9CA3AF' }}>
-                          Played
-                        </Text>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', marginTop: 2 }}>
-                          {player.playCount}
-                        </Text>
-                      </View>
-                      <View>
-                        <Text style={{ fontSize: 10, fontWeight: '500', color: '#9CA3AF' }}>
-                          Sat Out
-                        </Text>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', marginTop: 2 }}>
-                          {player.sitCount}
-                        </Text>
-                      </View>
-                      <View>
-                        <Text style={{ fontSize: 10, fontWeight: '500', color: '#9CA3AF' }}>
-                          Rating
-                        </Text>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', marginTop: 2 }}>
-                          {player.rating.toFixed(1)}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 8,
-                      backgroundColor: '#F9FAFB',
-                      borderRadius: 8,
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                    }}
-                    onPress={() => handleReassignClick(player)}
-                    disabled={reassignPlayerMutation.isPending}
-                  >
-                    <UserCog color="#6B7280" size={16} />
-                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151', flex: 1 }}>
-                      Replace Player
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          );
-        })}
-
-        {players.length === 0 && (
-          <View className="flex-1 items-center justify-center py-12">
-            <Trophy color="#9CA3AF" size={48} />
-            <Text className="text-gray-500 mt-4">No players yet</Text>
-          </View>
-        )}
-      </View>
+      {/* PHASE 2 OPTIMIZATION: FlatList with virtualization for better performance */}
+      <FlatList
+        data={players}
+        renderItem={renderPlayerCard}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={ListHeaderComponent}
+        ListEmptyComponent={ListEmptyComponent}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        initialNumToRender={10}
+        maxToRenderPerBatch={5}
+        windowSize={5}
+        removeClippedSubviews={true}
+        showsVerticalScrollIndicator={false}
+      />
 
       {/* Reassign Modal */}
       <PlayerReassignModal
@@ -458,4 +483,4 @@ export function LeaderboardTab({
       />
     </View>
   );
-}
+});

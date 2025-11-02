@@ -40,7 +40,8 @@
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE"
-      ]
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "androidNavigationBar": {
       "visible": "leanback",
@@ -57,6 +58,15 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#EF4444",
+          "sounds": ["./assets/notification-sound.wav"],
+          "mode": "production"
+        }
+      ],
       [
         "expo-build-properties",
         {

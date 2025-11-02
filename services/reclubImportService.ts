@@ -5,6 +5,8 @@
  * Mobile implementation - fetches HTML directly without API proxy
  */
 
+import { Logger } from '../utils/logger';
+
 export interface ImportedPlayer {
   name: string;
 }
@@ -38,7 +40,7 @@ export function isValidReclubUrl(url: string): boolean {
  * Uses multiple strategies to find player names in Reclub's HTML
  */
 export function extractPlayerNamesFromHtml(html: string): string[] {
-  console.log('[EXTRACT] Function called, HTML length:', html.length);
+  Logger.debug('extractPlayerNames: Starting extraction', { htmlLength: html.length });
   const playerNames: string[] = [];
   const seenNames = new Set<string>();
 
@@ -51,11 +53,9 @@ export function extractPlayerNamesFromHtml(html: string): string[] {
   const confirmedIndex = html.indexOf('Confirmed');
 
   if (confirmedIndex === -1) {
-    console.log('[EXTRACT] "Confirmed" text not found');
+    Logger.debug('extractPlayerNames: "Confirmed" text not found');
     return playerNames;
   }
-
-  console.log('[EXTRACT] Found "Confirmed" at index:', confirmedIndex);
 
   // Get a chunk of HTML after "Confirmed" - should contain the player grid
   // Use 15000 chars to support events with up to ~50 players
@@ -63,7 +63,7 @@ export function extractPlayerNamesFromHtml(html: string): string[] {
   const endChunk = Math.min(confirmedIndex + 15000, html.length);
   const chunk = html.substring(startChunk, endChunk);
 
-  console.log('[EXTRACT] Analyzing chunk of', chunk.length, 'chars');
+  Logger.debug('extractPlayerNames: Analyzing chunk', { chunkLength: chunk.length, confirmedIndex });
 
   // Look for the pattern that appears in Reclub's player cards:
   // <div class="align-top my-2 p-1">
@@ -75,11 +75,8 @@ export function extractPlayerNamesFromHtml(html: string): string[] {
   const playerCardRegex = /<div class="align-top my-2 p-1">.*?<p class="font-semibold[^"]*"[^>]*>\s*([^<]+)\s*<\/p>/gs;
   let match;
 
-  console.log('[EXTRACT] Searching for player cards...');
-
   while ((match = playerCardRegex.exec(chunk)) !== null) {
     const name = match[1].trim();
-    console.log('[EXTRACT] Potential player found:', name);
 
     // Only accept if it looks like a real name
     // Allow letters, spaces, numbers, parentheses, +, -, . for names like "Vincent (+1)", "John-Paul", or "Y.T"
@@ -90,11 +87,15 @@ export function extractPlayerNamesFromHtml(html: string): string[] {
         !seenNames.has(name.toLowerCase())) {
       playerNames.push(name);
       seenNames.add(name.toLowerCase());
-      console.log('[EXTRACT] ✓ Added player:', name);
+      Logger.debug('extractPlayerNames: Added player', { name });
     }
   }
 
-  console.log('[EXTRACT] Extraction completed. Found', playerNames.length, 'players');
+  Logger.info('extractPlayerNames: Extraction completed', {
+    action: 'reclub_extract_players',
+    metadata: { playerCount: playerNames.length },
+  });
+
   return playerNames;
 }
 
@@ -172,7 +173,10 @@ export async function importPlayersFromReclub(url: string): Promise<ReclubImport
   }
 
   try {
-    console.log('[RECLUB] Fetching URL:', url);
+    Logger.info('importPlayersFromReclub: Starting import', {
+      action: 'reclub_import_start',
+      metadata: { url },
+    });
 
     // Fetch the page directly
     const response = await fetch(url, {
@@ -186,12 +190,16 @@ export async function importPlayersFromReclub(url: string): Promise<ReclubImport
     }
 
     const html = await response.text();
-    console.log('[RECLUB] Received HTML, length:', html.length);
+    Logger.debug('importPlayersFromReclub: Received HTML', { htmlLength: html.length });
 
     // Extract player names
     const playerNames = extractPlayerNamesFromHtml(html);
 
     if (playerNames.length === 0) {
+      Logger.info('importPlayersFromReclub: No players found', {
+        action: 'reclub_import_empty',
+        metadata: { url },
+      });
       return {
         players: [],
         error: 'No players found in the Reclub event. Make sure the event has confirmed players.',
@@ -201,12 +209,24 @@ export async function importPlayersFromReclub(url: string): Promise<ReclubImport
     // Extract event details
     const eventDetails = extractEventDetailsFromHtml(html);
 
+    Logger.info('importPlayersFromReclub: Import successful', {
+      action: 'reclub_import_success',
+      metadata: {
+        url,
+        playerCount: playerNames.length,
+        hasEventDetails: Object.keys(eventDetails).length > 0,
+      },
+    });
+
     return {
       players: playerNames.map(name => ({ name })),
       eventDetails: Object.keys(eventDetails).length > 0 ? eventDetails : undefined,
     };
   } catch (error) {
-    console.error('[RECLUB] Error importing:', error);
+    Logger.error('importPlayersFromReclub: Import failed', error as Error, {
+      action: 'reclub_import_error',
+      metadata: { url },
+    });
     return {
       players: [],
       error: error instanceof Error ? error.message : 'Failed to import players from Reclub. Please check your internet connection and try again.',

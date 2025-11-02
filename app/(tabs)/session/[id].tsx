@@ -1,19 +1,26 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { View, ScrollView, TouchableOpacity, ActivityIndicator, Text, Platform, KeyboardAvoidingView } from 'react-native';
+import React, { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense, Component, ReactNode } from 'react';
+import { View, ScrollView, TouchableOpacity, ActivityIndicator, Text, Platform, KeyboardAvoidingView, Alert, BackHandler, StyleSheet, TouchableWithoutFeedback } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, Share2, MoreVertical, Play, Trophy, BarChart3, History } from 'lucide-react-native';
+import { ChevronLeft, Share2, MoreVertical, Play, Trophy, BarChart3, History, RefreshCw } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../../config/supabase';
 import { MexicanoAlgorithm, Player, Round, Match } from '@courtster/shared';
 import { useAuth } from '../../../hooks/useAuth';
 import Toast from 'react-native-toast-message';
+import PagerView from 'react-native-pager-view';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, interpolate, withTiming, runOnJS } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
+import { tabTransitionConfig } from '../../../utils/animations';
+import { offlineQueue } from '../../../utils/offlineQueue';
+import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
+import { toPlayerStatus, toGender, toMatchupPreference, toSessionType } from '../../../utils/typeGuards';
 
-// Import tab components
-import { RoundsTab } from '../../../components/session/RoundsTab';
-import { LeaderboardTab } from '../../../components/session/LeaderboardTab';
-import { StatisticsTab } from '../../../components/session/StatisticsTab';
-import { EventHistoryTab } from '../../../components/session/EventHistoryTab';
+// PHASE 2 OPTIMIZATION: Lazy load heavy tab components for better initial load performance
+const RoundsTab = lazy(() => import('../../../components/session/RoundsTab').then(m => ({ default: m.RoundsTab })));
+const LeaderboardTab = lazy(() => import('../../../components/session/LeaderboardTab').then(m => ({ default: m.LeaderboardTab })));
+const StatisticsTab = lazy(() => import('../../../components/session/StatisticsTab').then(m => ({ default: m.StatisticsTab })));
+const EventHistoryTab = lazy(() => import('../../../components/session/EventHistoryTab').then(m => ({ default: m.EventHistoryTab })));
 import { SyncIndicator } from '../../../components/ui/SyncIndicator';
 import { SessionSettingsModal } from '../../../components/ui/SessionSettingsModal';
 import { OfflineIndicator } from '../../../components/ui/OfflineIndicator';
@@ -26,6 +33,51 @@ import { ShareResultsModal } from '../../../components/session/ShareResultsModal
 type Tab = 'rounds' | 'leaderboard' | 'statistics' | 'history';
 type SortBy = 'points' | 'wins';
 
+// HIGH PRIORITY FIX #10: Error boundary for lazy-loaded components
+class LazyLoadErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(_error: Error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[LazyLoadErrorBoundary] Component failed to load:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View className="flex-1 items-center justify-center px-6 py-12">
+          <Text className="text-xl font-semibold text-red-600 mb-2">Failed to Load</Text>
+          <Text className="text-gray-600 text-center mb-6">
+            This component could not be loaded. Please try refreshing the app.
+          </Text>
+          <TouchableOpacity
+            style={{
+              backgroundColor: '#EF4444',
+              borderRadius: 12,
+              paddingHorizontal: 20,
+              paddingVertical: 12,
+            }}
+            onPress={() => this.setState({ hasError: false })}
+          >
+            <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -35,8 +87,8 @@ export default function SessionScreen() {
   const { isDark, fontScale, reduceAnimation } = useTheme();
   const colors = getThemeColors(isDark);
 
-  // Helper function to format scoring mode
-  const getScoringModeText = (session: any) => {
+  // PHASE 2 OPTIMIZATION: Memoize scoring mode text calculation
+  const getScoringModeText = useCallback((session: any) => {
     if (!session) return '';
 
     const pointsPerMatch = session.points_per_match || 0;
@@ -52,13 +104,14 @@ export default function SessionScreen() {
       default:
         return `${pointsPerMatch} points`;
     }
-  };
+  }, []);
 
   // State
   const [tab, setTab] = useState<Tab>('rounds');
   const [sortBy, setSortBy] = useState<SortBy>('points');
   const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
   const [algorithm, setAlgorithm] = useState<MexicanoAlgorithm | null>(null);
+  const [algorithmError, setAlgorithmError] = useState<string | null>(null); // ISSUE #5 FIX
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [addPlayerModalVisible, setAddPlayerModalVisible] = useState(false);
@@ -67,8 +120,21 @@ export default function SessionScreen() {
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [compactMode, setCompactMode] = useState(false);
 
+  // Network status
+  const { isOnline } = useNetworkStatus();
+
+  // Pager state and refs
+  const pagerRef = useRef<PagerView>(null);
+  const tabPosition = useSharedValue(0);
+  const tabs: Tab[] = ['rounds', 'leaderboard', 'statistics', 'history'];
+  const currentTabIndex = tabs.indexOf(tab);
+
+  // Round navigation animation
+  const roundTranslateX = useSharedValue(0);
+  const roundOpacity = useSharedValue(1);
+
   // Fetch session data
-  const { data: session, isLoading: sessionLoading } = useQuery({
+  const { data: session, isLoading: sessionLoading, isError: sessionError, error: sessionErrorDetails } = useQuery({
     queryKey: ['session', id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -78,8 +144,17 @@ export default function SessionScreen() {
         .single();
 
       if (error) throw error;
+
+      // CRITICAL FIX #1: Validate user ownership
+      if (data.user_id !== user?.id) {
+        throw new Error('You do not have access to this session');
+      }
+
       return data;
     },
+    enabled: !!user?.id && !!id,
+    retry: 2,
+    retryDelay: 1000,
   });
 
   // Fetch players
@@ -94,7 +169,7 @@ export default function SessionScreen() {
 
       if (error) throw error;
 
-      // Transform to Player type
+      // CRITICAL FIX #3: Transform to Player type with type guards
       return data.map(p => ({
         id: p.id,
         name: p.name,
@@ -103,7 +178,7 @@ export default function SessionScreen() {
         sitCount: p.sit_count,
         consecutiveSits: p.consecutive_sits,
         consecutivePlays: p.consecutive_plays,
-        status: p.status as any,
+        status: toPlayerStatus(p.status),
         totalPoints: p.total_points,
         wins: p.wins,
         losses: p.losses,
@@ -111,7 +186,7 @@ export default function SessionScreen() {
         skipRounds: p.skip_rounds || [],
         skipCount: p.skip_count || 0,
         compensationPoints: p.compensation_points || 0,
-        gender: p.gender as any,
+        gender: toGender(p.gender),
       }));
     },
   });
@@ -132,32 +207,74 @@ export default function SessionScreen() {
   });
 
   // Parse rounds from session data
+  // NOTE: round_data is JSONB in database - Supabase automatically parses it to JavaScript array
   const allRounds: Round[] = useMemo(() => {
     if (!session?.round_data) return [];
-    try {
-      return JSON.parse(session.round_data);
-    } catch {
-      return [];
+
+    // If round_data is already an array (from Supabase JSONB), use it directly
+    if (Array.isArray(session.round_data)) {
+      return session.round_data;
     }
+
+    // Fallback: if it's a string (shouldn't happen with JSONB), parse it
+    if (typeof session.round_data === 'string') {
+      try {
+        return JSON.parse(session.round_data);
+      } catch {
+        console.error('Failed to parse round_data:', session.round_data);
+        return [];
+      }
+    }
+
+    return [];
   }, [session?.round_data]);
 
-  // Initialize algorithm when players are loaded
-  useEffect(() => {
-    if (players.length >= 4 && session) {
+  // CRITICAL FIX #2: Initialize algorithm with race condition prevention
+  const initializeAlgorithm = useCallback(() => {
+    // Wait for BOTH session AND players to be loaded (prevent race condition)
+    if (!session || !players) return;
+
+    if (players.length >= 4) {
       try {
+        // CRITICAL FIX #3: Use type guards instead of 'as any'
         const algo = new MexicanoAlgorithm(
           players,
           session.courts || 1,
           true,
-          session.matchup_preference as any,
-          session.type as any
+          toMatchupPreference(session.matchup_preference),
+          toSessionType(session.type)
         );
         setAlgorithm(algo);
+        setAlgorithmError(null); // Clear any previous errors
       } catch (error) {
-        console.error('Failed to initialize algorithm:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown algorithm error';
+        console.error('[Algorithm Init Error]:', error);
+
+        // Set error state and show toast
+        setAlgorithmError(errorMessage);
+        setAlgorithm(null);
+
+        Toast.show({
+          type: 'error',
+          text1: 'Setup Failed',
+          text2: errorMessage,
+          visibilityTime: 4000,
+        });
       }
+    } else {
+      // Handle insufficient players case
+      setAlgorithmError('At least 4 players are required');
+      setAlgorithm(null);
     }
   }, [players, session]);
+
+  // CRITICAL FIX #2: Only initialize when BOTH queries are ready
+  useEffect(() => {
+    // Wait for both queries to complete before initializing
+    if (!sessionLoading && !playersLoading && session && players) {
+      initializeAlgorithm();
+    }
+  }, [sessionLoading, playersLoading, session, players, initializeAlgorithm]);
 
   // Set current round index based on session
   useEffect(() => {
@@ -166,22 +283,48 @@ export default function SessionScreen() {
     }
   }, [session?.current_round]);
 
-  // Calculate player stats from rounds
+  // HIGH PRIORITY FIX #4: Close dropdown on Android back button
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (dropdownOpen) {
+          setDropdownOpen(false);
+          return true; // Prevent default behavior (going back)
+        }
+        return false; // Allow default behavior
+      });
+
+      return () => backHandler.remove();
+    }
+  }, [dropdownOpen]);
+
+  // HIGH PRIORITY FIX #11: Close dropdown when changing tabs
+  useEffect(() => {
+    setDropdownOpen(false);
+  }, [tab]);
+
+  // ISSUE #14 FIX: Optimized player stats calculation using Map for O(1) lookups
   const calculatePlayerStatsFromRounds = useCallback(
     (playersData: Player[], rounds: Round[], sessionData: any): Player[] => {
-      // Reset all stats
-      const updatedPlayers = playersData.map((player) => ({
-        ...player,
-        totalPoints: 0,
-        wins: 0,
-        losses: 0,
-        ties: 0,
-        playCount: 0,
-        sitCount: 0,
-        compensationPoints: 0,
-      }));
+      // ISSUE #14 FIX: Use Map for O(1) player lookups instead of O(n) findIndex
+      // Complexity changed from O(r × m × p × n) to O(r × m × p)
+      const playerStatsMap = new Map(
+        playersData.map(p => [
+          p.id,
+          {
+            ...p,
+            totalPoints: 0,
+            wins: 0,
+            losses: 0,
+            ties: 0,
+            playCount: 0,
+            sitCount: 0,
+            compensationPoints: 0,
+          }
+        ])
+      );
 
-      // Calculate base stats from rounds
+      // Calculate base stats from rounds - now O(r × m × p) instead of O(r × m × p × n)
       rounds.forEach((round) => {
         round.matches.forEach((match) => {
           if (match.team1Score !== undefined && match.team2Score !== undefined) {
@@ -189,50 +332,53 @@ export default function SessionScreen() {
             const team2Won = match.team2Score > match.team1Score;
             const isTie = match.team1Score === match.team2Score;
 
-            // Update team 1 players
+            // Update team 1 players - O(1) lookup with Map
             match.team1.forEach((player) => {
-              const playerIndex = updatedPlayers.findIndex((p) => p.id === player.id);
-              if (playerIndex !== -1) {
-                updatedPlayers[playerIndex].totalPoints += match.team1Score!;
-                updatedPlayers[playerIndex].playCount++;
+              const stats = playerStatsMap.get(player.id);
+              if (stats) {
+                stats.totalPoints += match.team1Score!;
+                stats.playCount++;
 
                 if (team1Won) {
-                  updatedPlayers[playerIndex].wins++;
+                  stats.wins++;
                 } else if (team2Won) {
-                  updatedPlayers[playerIndex].losses++;
+                  stats.losses++;
                 } else if (isTie) {
-                  updatedPlayers[playerIndex].ties++;
+                  stats.ties++;
                 }
               }
             });
 
-            // Update team 2 players
+            // Update team 2 players - O(1) lookup with Map
             match.team2.forEach((player) => {
-              const playerIndex = updatedPlayers.findIndex((p) => p.id === player.id);
-              if (playerIndex !== -1) {
-                updatedPlayers[playerIndex].totalPoints += match.team2Score!;
-                updatedPlayers[playerIndex].playCount++;
+              const stats = playerStatsMap.get(player.id);
+              if (stats) {
+                stats.totalPoints += match.team2Score!;
+                stats.playCount++;
 
                 if (team2Won) {
-                  updatedPlayers[playerIndex].wins++;
+                  stats.wins++;
                 } else if (team1Won) {
-                  updatedPlayers[playerIndex].losses++;
+                  stats.losses++;
                 } else if (isTie) {
-                  updatedPlayers[playerIndex].ties++;
+                  stats.ties++;
                 }
               }
             });
           }
         });
 
-        // Count sitting players
+        // Count sitting players - O(1) lookup with Map
         round.sittingPlayers.forEach((sittingPlayer) => {
-          const playerIndex = updatedPlayers.findIndex((p) => p.id === sittingPlayer.id);
-          if (playerIndex !== -1) {
-            updatedPlayers[playerIndex].sitCount++;
+          const stats = playerStatsMap.get(sittingPlayer.id);
+          if (stats) {
+            stats.sitCount++;
           }
         });
       });
+
+      // Convert Map back to array
+      const updatedPlayers = Array.from(playerStatsMap.values());
 
       // Apply compensation points (capped at 1 round)
       if (!sessionData?.points_per_match) return updatedPlayers;
@@ -260,11 +406,12 @@ export default function SessionScreen() {
     []
   );
 
+  // HIGH PRIORITY FIX #5: Remove stable callback from dependencies
   // Recalculate player stats from rounds (for real-time updates)
   const recalculatedPlayers = useMemo(() => {
     if (!session || allRounds.length === 0) return players;
     return calculatePlayerStatsFromRounds(players, allRounds, session);
-  }, [players, allRounds, session, calculatePlayerStatsFromRounds]);
+  }, [players, allRounds, session]);
 
   // Sorted players with tiebreakers
   const sortedPlayers = useMemo(() => {
@@ -295,7 +442,7 @@ export default function SessionScreen() {
         return b.totalPoints - a.totalPoints;
       }
     });
-  }, [players, sortBy]);
+  }, [recalculatedPlayers, sortBy]);
 
   const currentRound = allRounds[currentRoundIndex];
   const hasMatchesStarted = useMemo(() => {
@@ -431,6 +578,64 @@ export default function SessionScreen() {
     },
   });
 
+  // Regenerate current round mutation
+  const regenerateRoundMutation = useMutation({
+    mutationFn: async () => {
+      const currentRound = allRounds[currentRoundIndex];
+      if (!currentRound || !algorithm) throw new Error('No current round to regenerate');
+
+      // Generate new round with same round number
+      const newRound = algorithm.generateRound(currentRound.number);
+      const description = `Round ${currentRound.number} regenerated`;
+
+      // Update the round in the rounds array
+      const updatedRounds = [...allRounds];
+      updatedRounds[currentRoundIndex] = newRound;
+
+      // Save to database or queue for offline
+      if (isOnline) {
+        const { error } = await supabase
+          .from('game_sessions')
+          .update({ round_data: updatedRounds })
+          .eq('id', id);
+
+        if (error) throw error;
+
+        // Log event
+        await supabase.from('event_history').insert({
+          session_id: id,
+          event_type: 'round_generated',
+          description,
+        });
+      } else {
+        // Queue for offline sync
+        await offlineQueue.addOperation('REGENERATE_ROUND', id, {
+          sessionId: id,
+          updatedRounds,
+          description,
+        });
+      }
+
+      return updatedRounds;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['session', id] });
+      queryClient.invalidateQueries({ queryKey: ['eventHistory', id] });
+      Toast.show({
+        type: 'success',
+        text1: 'Round Regenerated',
+        text2: `Round ${allRounds[currentRoundIndex]?.number} has been regenerated with new pairings`,
+      });
+    },
+    onError: (error: any) => {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to Regenerate Round',
+        text2: error.message,
+      });
+    },
+  });
+
   const handleAddPlayer = (name: string, rating: number) => {
     addPlayerMutation.mutate({ name, rating });
   };
@@ -455,11 +660,312 @@ export default function SessionScreen() {
     });
   };
 
+  const handleRegenerateRound = () => {
+    const currentRound = allRounds[currentRoundIndex];
+
+    Alert.alert(
+      'Regenerate Round',
+      `Are you sure you want to regenerate Round ${currentRound?.number}? All current scores will be lost.`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Regenerate',
+          style: 'destructive',
+          onPress: () => regenerateRoundMutation.mutate(),
+        },
+      ]
+    );
+  };
+
   const handleShareResults = () => {
     setShareModalVisible(true);
   };
 
-  // Switch player mutation
+  // Animated round navigation handlers
+  const handleRoundChange = useCallback((newIndex: number, direction: 'forward' | 'backward') => {
+    // Just change the index without animation for now to prevent crashes
+    // TODO: Re-enable animation after investigating the crash
+    setCurrentRoundIndex(newIndex);
+
+    // Haptic feedback
+    if (!reduceAnimation) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [reduceAnimation]);
+
+  // PHASE 2 OPTIMIZATION: Memoize player position getter
+  const getPlayerAtPosition = useCallback((
+    match: Match,
+    position: 'team1_0' | 'team1_1' | 'team2_0' | 'team2_1'
+  ): Player | undefined => {
+    switch (position) {
+      case 'team1_0':
+        return match.team1?.[0];
+      case 'team1_1':
+        return match.team1?.[1];
+      case 'team2_0':
+        return match.team2?.[0];
+      case 'team2_1':
+        return match.team2?.[1];
+    }
+  }, []);
+
+  // PHASE 2 OPTIMIZATION: Memoize player position setter
+  const setPlayerAtPosition = useCallback((
+    match: Match,
+    position: 'team1_0' | 'team1_1' | 'team2_0' | 'team2_1',
+    player: Player
+  ): void => {
+    // Ensure team arrays exist and have correct length
+    if (!match.team1 || match.team1.length < 2) {
+      match.team1 = [match.team1?.[0] || ({} as Player), match.team1?.[1] || ({} as Player)];
+    }
+    if (!match.team2 || match.team2.length < 2) {
+      match.team2 = [match.team2?.[0] || ({} as Player), match.team2?.[1] || ({} as Player)];
+    }
+
+    switch (position) {
+      case 'team1_0':
+        match.team1[0] = player;
+        break;
+      case 'team1_1':
+        match.team1[1] = player;
+        break;
+      case 'team2_0':
+        match.team2[0] = player;
+        break;
+      case 'team2_1':
+        match.team2[1] = player;
+        break;
+    }
+  }, []);
+
+  // HIGH PRIORITY FIX #8: Comprehensive player switch validation
+  const validatePlayerSwitch = useCallback((
+    oldPlayer: Player,
+    newPlayer: Player,
+    matchIndex: number,
+    position: 'team1_0' | 'team1_1' | 'team2_0' | 'team2_1'
+  ): { valid: boolean; error?: string } => {
+    if (!session) return { valid: false, error: 'Session not found' };
+
+    // Validate match exists and has teams
+    const currentMatch = currentRound.matches[matchIndex];
+    if (!currentMatch) {
+      return { valid: false, error: 'Match not found' };
+    }
+
+    // UX FIX: Check if match has scores entered
+    if (currentMatch.team1Score !== undefined || currentMatch.team2Score !== undefined) {
+      return {
+        valid: false,
+        error: `Cannot switch players after scores have been entered (${currentMatch.team1Score}-${currentMatch.team2Score}). Clear the scores first to make changes.`,
+      };
+    }
+
+    // UX FIX: Check new player availability with specific reason
+    if (newPlayer.status !== 'active') {
+      const statusText = newPlayer.status === 'sitting' ? 'currently sitting out' :
+                        newPlayer.status === 'skip' ? 'skipping this session' :
+                        'not available';
+      return {
+        valid: false,
+        error: `${newPlayer.name} is ${statusText}. Mark them as active first to use them in a match.`,
+      };
+    }
+
+    // Validate teams exist and have players
+    if (!currentMatch.team1 || !currentMatch.team2) {
+      return {
+        valid: false,
+        error: 'Match teams are not properly initialized. Please regenerate this round.'
+      };
+    }
+
+    if (currentMatch.team1.length < 2 || currentMatch.team2.length < 2) {
+      return {
+        valid: false,
+        error: 'Both teams must have 2 players. Please regenerate this round to fix the match structure.'
+      };
+    }
+
+    // Validate no duplicate players in the same match (after switch)
+    const team1Players = position.startsWith('team1')
+      ? [
+          position === 'team1_0' ? newPlayer : currentMatch.team1[0],
+          position === 'team1_1' ? newPlayer : currentMatch.team1[1],
+        ]
+      : currentMatch.team1;
+
+    const team2Players = position.startsWith('team2')
+      ? [
+          position === 'team2_0' ? newPlayer : currentMatch.team2[0],
+          position === 'team2_1' ? newPlayer : currentMatch.team2[1],
+        ]
+      : currentMatch.team2;
+
+    // UX FIX: Check for duplicate players in team1
+    if (team1Players[0]?.id === team1Players[1]?.id) {
+      return {
+        valid: false,
+        error: `Cannot have ${team1Players[0]?.name || 'the same player'} twice on Team 1. Choose a different replacement player.`,
+      };
+    }
+
+    // UX FIX: Check for duplicate players in team2
+    if (team2Players[0]?.id === team2Players[1]?.id) {
+      return {
+        valid: false,
+        error: `Cannot have ${team2Players[0]?.name || 'the same player'} twice on Team 2. Choose a different replacement player.`,
+      };
+    }
+
+    // UX FIX: Check if newPlayer is already in the match (different position)
+    const allMatchPlayers = [...team1Players, ...team2Players].filter(p => p && p.id);
+    const playerIds = allMatchPlayers.map(p => p.id);
+    const uniqueIds = new Set(playerIds);
+
+    if (playerIds.length !== uniqueIds.size) {
+      return {
+        valid: false,
+        error: `${newPlayer.name} is already playing in this match at a different position. To swap positions, use a sitting player as an intermediary.`,
+      };
+    }
+
+    // UX FIX: For Fixed Partner mode, prevent breaking partnerships
+    if (session.type === 'fixed_partner') {
+      // Check if oldPlayer has a partner
+      if (oldPlayer.partnerId) {
+        const partner = players.find(p => p.id === oldPlayer.partnerId);
+        if (partner) {
+          return {
+            valid: false,
+            error: `Cannot switch ${oldPlayer.name} - they are partnered with ${partner.name} in Fixed Partner mode. Switch the entire partnership or change session type.`,
+          };
+        }
+      }
+    }
+
+    // UX FIX: For Mixed Mexicano, validate gender balance with specific feedback
+    if (session.type === 'mixed_mexicano') {
+      // Filter out undefined/null players
+      const validTeam1Players = team1Players.filter(p => p && p.id);
+      const validTeam2Players = team2Players.filter(p => p && p.id);
+
+      if (validTeam1Players.length < 2 || validTeam2Players.length < 2) {
+        return {
+          valid: false,
+          error: 'Both teams must have 2 players for Mixed Mexicano. Please regenerate this round.',
+        };
+      }
+
+      // Validate team 1 has 1 male + 1 female
+      const team1Genders = validTeam1Players.map(p => p.gender).filter(Boolean);
+      const team1HasMale = team1Genders.includes('male');
+      const team1HasFemale = team1Genders.includes('female');
+
+      if (!team1HasMale || !team1HasFemale) {
+        const team1GenderText = team1Genders.join(' + ');
+        return {
+          valid: false,
+          error: `Team 1 would have ${team1GenderText} (needs 1 male + 1 female). This switch breaks gender balance for Mixed Mexicano. Choose a ${team1HasMale ? 'female' : 'male'} player instead.`,
+        };
+      }
+
+      // Validate team 2 has 1 male + 1 female
+      const team2Genders = validTeam2Players.map(p => p.gender).filter(Boolean);
+      const team2HasMale = team2Genders.includes('male');
+      const team2HasFemale = team2Genders.includes('female');
+
+      if (!team2HasMale || !team2HasFemale) {
+        const team2GenderText = team2Genders.join(' + ');
+        return {
+          valid: false,
+          error: `Team 2 would have ${team2GenderText} (needs 1 male + 1 female). This switch breaks gender balance for Mixed Mexicano. Choose a ${team2HasMale ? 'female' : 'male'} player instead.`,
+        };
+      }
+    }
+
+    return { valid: true };
+  }, [session, currentRound, players]);
+
+  // PHASE 2 OPTIMIZATION: Memoize player swap logic
+  const performPlayerSwap = useCallback((
+    round: Round,
+    matchIndex: number,
+    position: 'team1_0' | 'team1_1' | 'team2_0' | 'team2_1',
+    oldPlayer: Player,
+    newPlayer: Player
+  ): void => {
+    // Check if newPlayer is currently playing (swap) or sitting (replace)
+    const isSwap = round.matches.some(match =>
+      match.team1?.some(p => p?.id === newPlayer.id) ||
+      match.team2?.some(p => p?.id === newPlayer.id)
+    );
+
+    if (isSwap) {
+      // Find where the newPlayer is currently playing
+      let swapMatchIndex = -1;
+      let swapPosition: 'team1_0' | 'team1_1' | 'team2_0' | 'team2_1' | null = null;
+
+      round.matches.forEach((match, idx) => {
+        const team1Pos0 = match.team1?.[0];
+        const team1Pos1 = match.team1?.[1];
+        const team2Pos0 = match.team2?.[0];
+        const team2Pos1 = match.team2?.[1];
+
+        if (team1Pos0?.id === newPlayer.id) {
+          swapMatchIndex = idx;
+          swapPosition = 'team1_0';
+        } else if (team1Pos1?.id === newPlayer.id) {
+          swapMatchIndex = idx;
+          swapPosition = 'team1_1';
+        } else if (team2Pos0?.id === newPlayer.id) {
+          swapMatchIndex = idx;
+          swapPosition = 'team2_0';
+        } else if (team2Pos1?.id === newPlayer.id) {
+          swapMatchIndex = idx;
+          swapPosition = 'team2_1';
+        }
+      });
+
+      if (swapMatchIndex === -1 || !swapPosition) {
+        throw new Error('Could not find new player position in round matches');
+      }
+
+      // Validate swap match exists and has proper structure
+      if (!round.matches[swapMatchIndex]) {
+        throw new Error('Swap match not found in round');
+      }
+
+      // Put newPlayer in the original position
+      setPlayerAtPosition(round.matches[matchIndex], position, newPlayer);
+
+      // Put oldPlayer in newPlayer's original position
+      setPlayerAtPosition(round.matches[swapMatchIndex], swapPosition, oldPlayer);
+    } else {
+      // Replace with sitting player
+      // Update the match with new player
+      setPlayerAtPosition(round.matches[matchIndex], position, newPlayer);
+
+      // Update sitting players - remove new player, add old player
+      if (!round.sittingPlayers) {
+        round.sittingPlayers = [];
+      }
+      round.sittingPlayers = round.sittingPlayers.filter(p => p?.id !== newPlayer.id);
+
+      // Only add old player if not already sitting (edge case: player in both matches and sitting)
+      const oldPlayerInSitting = round.sittingPlayers.some(p => p?.id === oldPlayer.id);
+      if (!oldPlayerInSitting) {
+        round.sittingPlayers.push(oldPlayer);
+      }
+    }
+  }, [setPlayerAtPosition]);
+
+  // HIGH PRIORITY FIX #6: Switch player mutation with optimistic updates
   const switchPlayerMutation = useMutation({
     mutationFn: async ({
       matchIndex,
@@ -470,123 +976,68 @@ export default function SessionScreen() {
       position: 'team1_0' | 'team1_1' | 'team2_0' | 'team2_1';
       newPlayerId: string;
     }) => {
+      // Validate round exists
+      if (!currentRound || !currentRound.matches) {
+        throw new Error('No active round found');
+      }
+
+      // Validate match index
+      if (matchIndex < 0 || matchIndex >= currentRound.matches.length) {
+        throw new Error('Invalid match index');
+      }
+
       // Get current match and old player
       const currentMatch = currentRound.matches[matchIndex];
-      let oldPlayer: Player | undefined;
+      const oldPlayer = getPlayerAtPosition(currentMatch, position);
 
-      switch (position) {
-        case 'team1_0':
-          oldPlayer = currentMatch.team1?.[0];
-          break;
-        case 'team1_1':
-          oldPlayer = currentMatch.team1?.[1];
-          break;
-        case 'team2_0':
-          oldPlayer = currentMatch.team2?.[0];
-          break;
-        case 'team2_1':
-          oldPlayer = currentMatch.team2?.[1];
-          break;
+      if (!oldPlayer) {
+        throw new Error('No player found at the specified position');
       }
 
       const newPlayer = players.find(p => p.id === newPlayerId);
 
-      if (!oldPlayer || !newPlayer) {
-        throw new Error('Player not found');
+      if (!newPlayer) {
+        throw new Error('Replacement player not found');
+      }
+
+      // Check if trying to switch player with themselves
+      if (oldPlayer.id === newPlayer.id) {
+        throw new Error('Cannot switch player with themselves');
+      }
+
+      // ISSUE #10 FIX: Validate the switch before proceeding
+      const validation = validatePlayerSwitch(oldPlayer, newPlayer, matchIndex, position);
+      if (!validation.valid) {
+        throw new Error(validation.error || 'Invalid player switch');
       }
 
       // Update rounds data with switched player
       const updatedRounds = [...allRounds];
       const round = updatedRounds[currentRoundIndex];
 
-      // Check if newPlayer is currently playing (swap) or sitting (replace)
-      const isSwap = round.matches.some(match =>
-        match.team1?.some(p => p.id === newPlayer.id) ||
-        match.team2?.some(p => p.id === newPlayer.id)
-      );
-
-      if (isSwap) {
-        // Find where the newPlayer is currently playing
-        let swapMatchIndex = -1;
-        let swapPosition: 'team1_0' | 'team1_1' | 'team2_0' | 'team2_1' | null = null;
-
-        round.matches.forEach((match, idx) => {
-          if (match.team1?.[0]?.id === newPlayer.id) {
-            swapMatchIndex = idx;
-            swapPosition = 'team1_0';
-          } else if (match.team1?.[1]?.id === newPlayer.id) {
-            swapMatchIndex = idx;
-            swapPosition = 'team1_1';
-          } else if (match.team2?.[0]?.id === newPlayer.id) {
-            swapMatchIndex = idx;
-            swapPosition = 'team2_0';
-          } else if (match.team2?.[1]?.id === newPlayer.id) {
-            swapMatchIndex = idx;
-            swapPosition = 'team2_1';
-          }
-        });
-
-        if (swapMatchIndex !== -1 && swapPosition) {
-          // Swap the two players
-          // Put newPlayer in the original position
-          switch (position) {
-            case 'team1_0':
-              round.matches[matchIndex].team1[0] = newPlayer;
-              break;
-            case 'team1_1':
-              round.matches[matchIndex].team1[1] = newPlayer;
-              break;
-            case 'team2_0':
-              round.matches[matchIndex].team2[0] = newPlayer;
-              break;
-            case 'team2_1':
-              round.matches[matchIndex].team2[1] = newPlayer;
-              break;
-          }
-
-          // Put oldPlayer in newPlayer's original position
-          switch (swapPosition) {
-            case 'team1_0':
-              round.matches[swapMatchIndex].team1[0] = oldPlayer;
-              break;
-            case 'team1_1':
-              round.matches[swapMatchIndex].team1[1] = oldPlayer;
-              break;
-            case 'team2_0':
-              round.matches[swapMatchIndex].team2[0] = oldPlayer;
-              break;
-            case 'team2_1':
-              round.matches[swapMatchIndex].team2[1] = oldPlayer;
-              break;
-          }
-        }
-      } else {
-        // Replace with sitting player
-        // Update the match with new player
-        switch (position) {
-          case 'team1_0':
-            round.matches[matchIndex].team1[0] = newPlayer;
-            break;
-          case 'team1_1':
-            round.matches[matchIndex].team1[1] = newPlayer;
-            break;
-          case 'team2_0':
-            round.matches[matchIndex].team2[0] = newPlayer;
-            break;
-          case 'team2_1':
-            round.matches[matchIndex].team2[1] = newPlayer;
-            break;
-        }
-
-        // Update sitting players - remove new player, add old player
-        round.sittingPlayers = round.sittingPlayers.filter(p => p.id !== newPlayer.id);
-        round.sittingPlayers.push(oldPlayer);
+      // Validate round structure
+      if (!round || !round.matches) {
+        throw new Error('Round data is corrupted or missing');
       }
 
+      // Perform the swap
+      try {
+        performPlayerSwap(round, matchIndex, position, oldPlayer, newPlayer);
+      } catch (error) {
+        throw new Error(`Failed to swap players: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+
+      // Determine if it was a swap for logging
+      const isSwap = round.matches.some(match =>
+        match.team1?.some(p => p?.id === oldPlayer.id) ||
+        match.team2?.some(p => p?.id === oldPlayer.id)
+      );
+
       // Save to database
+      // NOTE: Pass JavaScript array directly - Supabase converts to JSONB automatically
       const { error: updateError } = await supabase
         .from('game_sessions')
-        .update({ round_data: JSON.stringify(updatedRounds) })
+        .update({ round_data: updatedRounds })
         .eq('id', id);
 
       if (updateError) throw updateError;
@@ -613,6 +1064,60 @@ export default function SessionScreen() {
       });
 
       return updatedRounds;
+    },
+    // HIGH PRIORITY FIX #6: Optimistic update for instant UI feedback
+    onMutate: async (variables) => {
+      // Cancel outgoing refetches so they don't overwrite optimistic update
+      await queryClient.cancelQueries({ queryKey: ['session', id] });
+
+      // Snapshot the previous value
+      const previousSession = queryClient.getQueryData(['session', id]);
+
+      // Optimistically update the cache
+      queryClient.setQueryData(['session', id], (old: any) => {
+        if (!old || !old.round_data) return old;
+
+        const updatedRounds = JSON.parse(JSON.stringify(old.round_data));
+        const round = updatedRounds[currentRoundIndex];
+
+        if (!round || !round.matches) return old;
+
+        // Get players
+        const currentMatch = round.matches[variables.matchIndex];
+        const oldPlayer = getPlayerAtPosition(currentMatch, variables.position);
+        const newPlayer = players.find(p => p.id === variables.newPlayerId);
+
+        if (!oldPlayer || !newPlayer) return old;
+
+        // Perform optimistic swap
+        try {
+          performPlayerSwap(round, variables.matchIndex, variables.position, oldPlayer, newPlayer);
+        } catch (error) {
+          console.error('[Optimistic Update Failed]:', error);
+          return old;
+        }
+
+        return {
+          ...old,
+          round_data: updatedRounds,
+        };
+      });
+
+      // Return context with snapshot
+      return { previousSession };
+    },
+    onError: (err, variables, context) => {
+      // Rollback optimistic update on error
+      if (context?.previousSession) {
+        queryClient.setQueryData(['session', id], context.previousSession);
+      }
+
+      Toast.show({
+        type: 'error',
+        text1: 'Switch Failed',
+        text2: err instanceof Error ? err.message : 'Failed to switch player',
+        visibilityTime: 4000,
+      });
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['session', id] });
@@ -652,6 +1157,32 @@ export default function SessionScreen() {
       <View className="flex-1 items-center justify-center bg-gray-50">
         <ActivityIndicator size="large" color="#3B82F6" />
         <Text className="text-gray-600 mt-4">Loading session...</Text>
+      </View>
+    );
+  }
+
+  // HIGH PRIORITY FIX #7: Error handling UI
+  if (sessionError) {
+    return (
+      <View className="flex-1 items-center justify-center bg-gray-50 px-6">
+        <Text className="text-xl font-semibold text-red-600 mb-2">Failed to Load Session</Text>
+        <Text className="text-gray-600 text-center mb-6">
+          {sessionErrorDetails?.message || 'An error occurred while loading this session'}
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <TouchableOpacity
+            style={{ backgroundColor: '#EF4444', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12 }}
+            onPress={() => queryClient.invalidateQueries({ queryKey: ['session', id] })}
+          >
+            <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, borderWidth: 1, borderColor: '#D1D5DB' }}
+            onPress={() => router.back()}
+          >
+            <Text style={{ color: '#111827', fontWeight: '600' }}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -746,21 +1277,27 @@ export default function SessionScreen() {
 
             {/* Dropdown Menu */}
             {dropdownOpen && (
-              <View style={{
-                position: 'absolute',
-                right: 0,
-                top: 48,
-                backgroundColor: '#FFFFFF',
-                borderRadius: 16,
-                width: 200,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.12,
-                shadowRadius: 16,
-                elevation: 8,
-                overflow: 'hidden',
-                zIndex: 50,
-              }}>
+              <>
+                {/* HIGH PRIORITY FIX #4: Backdrop to close dropdown on outside tap */}
+                <TouchableWithoutFeedback onPress={() => setDropdownOpen(false)}>
+                  <View style={StyleSheet.absoluteFill} />
+                </TouchableWithoutFeedback>
+
+                <View style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 48,
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: 16,
+                  width: 200,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.12,
+                  shadowRadius: 16,
+                  elevation: 8,
+                  overflow: 'hidden',
+                  zIndex: 50,
+                }}>
                 <TouchableOpacity
                   style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}
                   onPress={() => {
@@ -795,6 +1332,37 @@ export default function SessionScreen() {
                   }}
                 >
                   <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827' }}>Switch Player</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#F3F4F6',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                  onPress={() => {
+                    setDropdownOpen(false);
+                    if (!currentRound || currentRound.matches.length === 0 || !algorithm) {
+                      Toast.show({
+                        type: 'error',
+                        text1: 'No Active Round',
+                        text2: 'Please generate a round first',
+                      });
+                      return;
+                    }
+                    handleRegenerateRound();
+                  }}
+                  disabled={regenerateRoundMutation.isPending}
+                >
+                  {regenerateRoundMutation.isPending ? (
+                    <ActivityIndicator size="small" color="#EF4444" />
+                  ) : (
+                    <RefreshCw color="#EF4444" size={16} />
+                  )}
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#EF4444' }}>Regenerate Round</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}
@@ -843,117 +1411,136 @@ export default function SessionScreen() {
                   <Text style={{ fontSize: 14, fontWeight: '600', color: '#EF4444' }}>End Session</Text>
                 </TouchableOpacity>
               </View>
+              </>
             )}
             </View>
           </View>
         </View>
       </View>
 
-      {/* Tab Content */}
-      <View style={{ flex: 1 }}>
-        <ScrollView className="flex-1 px-3 pt-3" contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
-          {tab === 'rounds' && (
-            <RoundsTab
-            currentRound={currentRound}
-            currentRoundIndex={currentRoundIndex}
-            allRounds={allRounds}
-            hasMatchesStarted={hasMatchesStarted}
-            session={session}
-            players={players}
-            algorithm={algorithm}
-            sessionId={id}
-            onRoundChange={setCurrentRoundIndex}
-            compactMode={compactMode}
-            onSwitchPlayerPress={() => setSwitchPlayerModalVisible(true)}
-          />
-        )}
-        {tab === 'leaderboard' && (
-          <LeaderboardTab
-            players={sortedPlayers}
-            sortBy={sortBy}
-            onSortChange={setSortBy}
-            session={session}
-            sessionId={id}
-            allRounds={allRounds}
-          />
-        )}
-        {tab === 'statistics' && (
-          <StatisticsTab
-            players={recalculatedPlayers}
-            allRounds={allRounds}
-          />
-        )}
-        {tab === 'history' && (
-          <EventHistoryTab
-            events={eventHistory}
-          />
-        )}
-        </ScrollView>
-      </View>
+      {/* Swipeable Tab Content */}
+      <PagerView
+        ref={pagerRef}
+        style={{ flex: 1 }}
+        initialPage={currentTabIndex}
+        onPageSelected={(e) => {
+          const newIndex = e.nativeEvent.position;
+          const newTab = tabs[newIndex];
+          setTab(newTab);
 
-      {/* Tab Bar - Full Width at Bottom */}
-      <View style={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: '#FFFFFF',
-        borderTopWidth: 1,
-        borderTopColor: '#F3F4F6',
-        paddingBottom: Platform.OS === 'ios' ? insets.bottom + 4 : 12,
-        paddingTop: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 12,
-        elevation: 8,
-      }}>
-
-        <View style={{
-          flexDirection: 'row',
-          flex: 1,
-          paddingHorizontal: 8,
-        }}>
-          {(['rounds', 'leaderboard', 'statistics', 'history'] as Tab[]).map((t) => {
-            const isActive = tab === t;
-            let Icon;
-            switch (t) {
-              case 'rounds': Icon = Play; break;
-              case 'leaderboard': Icon = Trophy; break;
-              case 'statistics': Icon = BarChart3; break;
-              case 'history': Icon = History; break;
-            }
-
-            return (
-              <TouchableOpacity
-                key={t}
-                onPress={() => setTab(t)}
-                style={{
-                  flex: 1,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingTop: 8,
-                }}
-              >
-                <Icon
-                  color={isActive ? '#EF4444' : '#6B7280'}
-                  size={24}
-                  strokeWidth={1.5}
+          // Haptic feedback on tab change
+          if (!reduceAnimation) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
+        }}
+        onPageScroll={(e) => {
+          // Update tab position for animated indicator
+          tabPosition.value = e.nativeEvent.position + e.nativeEvent.offset;
+        }}
+      >
+        {/* HIGH PRIORITY FIX #10: Wrap lazy-loaded tabs in ErrorBoundary + Suspense */}
+        {/* Rounds Tab */}
+        <View key="rounds" style={{ flex: 1 }}>
+          <ScrollView className="flex-1 px-3 pt-3" contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+            <LazyLoadErrorBoundary>
+              <Suspense fallback={
+                <View className="flex-1 items-center justify-center py-12">
+                  <ActivityIndicator size="large" color="#EF4444" />
+                  <Text className="text-gray-600 mt-4">Loading...</Text>
+                </View>
+              }>
+                <RoundsTab
+                  currentRound={currentRound}
+                  currentRoundIndex={currentRoundIndex}
+                  allRounds={allRounds}
+                  hasMatchesStarted={hasMatchesStarted}
+                  session={session}
+                  players={players}
+                  algorithm={algorithm}
+                  algorithmError={algorithmError}
+                  onRetryAlgorithm={initializeAlgorithm}
+                  sessionId={id}
+                  onRoundChange={handleRoundChange}
+                  compactMode={compactMode}
+                  onSwitchPlayerPress={() => setSwitchPlayerModalVisible(true)}
                 />
-                <Text style={{
-                  fontSize: 11,
-                  fontWeight: '600',
-                  color: isActive ? '#EF4444' : '#6B7280',
-                  marginTop: 4,
-                  paddingBottom: 4,
-                }}>
-                  {t === 'leaderboard' ? 'Board' : t.charAt(0).toUpperCase() + t.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+              </Suspense>
+            </LazyLoadErrorBoundary>
+          </ScrollView>
         </View>
-      </View>
+
+        {/* Leaderboard Tab */}
+        <View key="leaderboard" style={{ flex: 1, paddingHorizontal: 12, paddingTop: 12 }}>
+          <LazyLoadErrorBoundary>
+            <Suspense fallback={
+              <View className="flex-1 items-center justify-center py-12">
+                <ActivityIndicator size="large" color="#EF4444" />
+                <Text className="text-gray-600 mt-4">Loading...</Text>
+              </View>
+            }>
+              <LeaderboardTab
+                players={sortedPlayers}
+                sortBy={sortBy}
+                onSortChange={setSortBy}
+                session={session}
+                sessionId={id}
+                allRounds={allRounds}
+              />
+            </Suspense>
+          </LazyLoadErrorBoundary>
+        </View>
+
+        {/* Statistics Tab */}
+        <View key="statistics" style={{ flex: 1 }}>
+          <ScrollView className="flex-1 px-3 pt-3" contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+            <LazyLoadErrorBoundary>
+              <Suspense fallback={
+                <View className="flex-1 items-center justify-center py-12">
+                  <ActivityIndicator size="large" color="#EF4444" />
+                  <Text className="text-gray-600 mt-4">Loading...</Text>
+                </View>
+              }>
+                <StatisticsTab
+                  players={recalculatedPlayers}
+                  allRounds={allRounds}
+                />
+              </Suspense>
+            </LazyLoadErrorBoundary>
+          </ScrollView>
+        </View>
+
+        {/* History Tab */}
+        <View key="history" style={{ flex: 1 }}>
+          <ScrollView className="flex-1 px-3 pt-3" contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+            <LazyLoadErrorBoundary>
+              <Suspense fallback={
+                <View className="flex-1 items-center justify-center py-12">
+                  <ActivityIndicator size="large" color="#EF4444" />
+                  <Text className="text-gray-600 mt-4">Loading...</Text>
+                </View>
+              }>
+                <EventHistoryTab
+                  events={eventHistory}
+                  sessionName={session?.name}
+                />
+              </Suspense>
+            </LazyLoadErrorBoundary>
+          </ScrollView>
+        </View>
+      </PagerView>
+
+      {/* Tab Bar - Full Width at Bottom with Animated Indicator */}
+      <TabBarWithIndicator
+        tabs={tabs}
+        currentTab={tab}
+        tabPosition={tabPosition}
+        onTabPress={(newTab) => {
+          const newIndex = tabs.indexOf(newTab);
+          pagerRef.current?.setPage(newIndex);
+          setTab(newTab);
+        }}
+        insets={insets}
+      />
 
       {/* Add Player Modal */}
       <AddPlayerModal
@@ -989,6 +1576,89 @@ export default function SessionScreen() {
         sessionId={id}
         sessionName={session?.name || 'Game Session'}
       />
+    </View>
+  );
+}
+
+// Animated Tab Bar Component
+interface TabBarWithIndicatorProps {
+  tabs: Tab[];
+  currentTab: Tab;
+  tabPosition: Animated.SharedValue<number>;
+  onTabPress: (tab: Tab) => void;
+  insets: { bottom: number };
+}
+
+function TabBarWithIndicator({ tabs, currentTab, tabPosition, onTabPress, insets }: TabBarWithIndicatorProps) {
+  const getTabIcon = (tab: Tab) => {
+    switch (tab) {
+      case 'rounds': return Play;
+      case 'leaderboard': return Trophy;
+      case 'statistics': return BarChart3;
+      case 'history': return History;
+    }
+  };
+
+  const getTabLabel = (tab: Tab) => {
+    return tab === 'leaderboard' ? 'Board' : tab.charAt(0).toUpperCase() + tab.slice(1);
+  };
+
+  return (
+    <View style={{
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: '#FFFFFF',
+      borderTopWidth: 1,
+      borderTopColor: '#F3F4F6',
+      paddingBottom: Platform.OS === 'ios' ? insets.bottom + 4 : 12,
+      paddingTop: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.06,
+      shadowRadius: 12,
+      elevation: 8,
+    }}>
+      {/* Tab Buttons */}
+      <View style={{
+        flexDirection: 'row',
+        flex: 1,
+        paddingHorizontal: 8,
+      }}>
+        {tabs.map((t) => {
+          const isActive = currentTab === t;
+          const Icon = getTabIcon(t);
+
+          return (
+            <TouchableOpacity
+              key={t}
+              onPress={() => onTabPress(t)}
+              style={{
+                flex: 1,
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingTop: 8,
+              }}
+            >
+              <Icon
+                color={isActive ? '#EF4444' : '#6B7280'}
+                size={24}
+                strokeWidth={1.5}
+              />
+              <Text style={{
+                fontSize: 11,
+                fontWeight: '600',
+                color: isActive ? '#EF4444' : '#6B7280',
+                marginTop: 4,
+                paddingBottom: 4,
+              }}>
+                {getTabLabel(t)}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 }
