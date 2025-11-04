@@ -4,6 +4,7 @@
  * Tracks notification metrics, delivery rates, and user engagement
  */
 
+import { Logger } from '../utils/logger';
 import { NotificationType } from './notificationsEnhanced';
 import { supabase } from '../config/supabase';
 
@@ -186,7 +187,10 @@ class NotificationAnalytics {
 
       if (error) throw error;
     } catch (error) {
-      console.error('Failed to save notification analytics:', error);
+      Logger.error('Failed to save notification analytics', error as Error, {
+        action: 'save_analytics',
+        userId,
+      });
     }
   }
 

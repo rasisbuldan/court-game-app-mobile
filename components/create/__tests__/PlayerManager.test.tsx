@@ -359,7 +359,7 @@ describe('PlayerManager', () => {
 
   describe('Import Functionality', () => {
     it('calls onImport when import button pressed', () => {
-      const { getByText } = render(<PlayerManager {...defaultProps} />);
+      const { getByText } = render(<PlayerManager {...defaultProps} canImportFromReclub={true} />);
 
       const importButton = getByText('Import from Reclub');
       fireEvent.press(importButton);

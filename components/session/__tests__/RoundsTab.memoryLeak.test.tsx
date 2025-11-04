@@ -101,11 +101,14 @@ const createWrapper = () => {
 describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    cleanup();
     // Mock successful score update
     (supabase.rpc as jest.Mock).mockResolvedValue({ data: {}, error: null });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Wait for any pending async operations
+    await new Promise((resolve) => setTimeout(resolve, 0));
     cleanup();
   });
 
@@ -306,7 +309,7 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
       const session = createMockSession();
       const algorithm = createMockAlgorithm();
 
-      const { getByTestId } = render(
+      const { getByTestId, unmount } = render(
         <RoundsTab
           currentRound={round}
           currentRoundIndex={0}
@@ -321,12 +324,16 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
         { wrapper: createWrapper() }
       );
 
-      // Act
-      const input = getByTestId('score-input-match-0-team1') || getByTestId('score-input-0-team1');
-      fireEvent.changeText(input, '15');
+      try {
+        // Act
+        const input = getByTestId('score-input-match-0-team1') || getByTestId('score-input-0-team1');
+        fireEvent.changeText(input, '15');
 
-      // Assert - Value should be updated immediately
-      expect(input.props.value).toBe('15');
+        // Assert - Value should be updated immediately
+        expect(input.props.value).toBe('15');
+      } finally {
+        unmount();
+      }
     });
 
     it('should clear localScores entry after processing blur event', async () => {
@@ -339,7 +346,7 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
       const session = createMockSession();
       const algorithm = createMockAlgorithm();
 
-      const { getByTestId } = render(
+      const { getByTestId, unmount } = render(
         <RoundsTab
           currentRound={round}
           currentRoundIndex={0}
@@ -354,15 +361,19 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
         { wrapper: createWrapper() }
       );
 
-      // Act
-      const input = getByTestId('score-input-match-0-team1') || getByTestId('score-input-0-team1');
-      fireEvent.changeText(input, '15');
-      fireEvent(input, 'blur');
+      try {
+        // Act
+        const input = getByTestId('score-input-match-0-team1') || getByTestId('score-input-0-team1');
+        fireEvent.changeText(input, '15');
+        fireEvent(input, 'blur');
 
-      // Assert - After blur, local state should be cleared (input shows saved value)
-      await waitFor(() => {
-        expect(supabase.rpc).toHaveBeenCalled();
-      });
+        // Assert - After blur, local state should be cleared (input shows saved value)
+        await waitFor(() => {
+          expect(supabase.rpc).toHaveBeenCalled();
+        });
+      } finally {
+        unmount();
+      }
     });
   });
 
@@ -378,7 +389,7 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
       const session = createMockSession();
       const algorithm = createMockAlgorithm();
 
-      const { getByTestId } = render(
+      const { getByTestId, unmount } = render(
         <RoundsTab
           currentRound={round}
           currentRoundIndex={0}
@@ -408,6 +419,9 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
       await waitFor(() => {
         expect(supabase.rpc).toHaveBeenCalled();
       }, { timeout: 3000 });
+
+      // Cleanup before assertion
+      unmount();
 
       // No assertion needed - if test completes without hanging, memory is managed correctly
       expect(true).toBe(true);
@@ -442,7 +456,9 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
       const session = createMockSession();
       const algorithm = createMockAlgorithm();
 
-      const { getByTestId, rerender } = render(
+      const Wrapper = createWrapper();
+
+      const { getByTestId, rerender, unmount } = render(
         <RoundsTab
           currentRound={round1}
           currentRoundIndex={0}
@@ -454,7 +470,7 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
           sessionId="session-1"
           onRoundChange={jest.fn()}
         />,
-        { wrapper: createWrapper() }
+        { wrapper: Wrapper }
       );
 
       // Act - Enter scores in round 1
@@ -467,17 +483,19 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
 
       // Navigate to round 2
       rerender(
-        <RoundsTab
-          currentRound={round2}
-          currentRoundIndex={1}
-          allRounds={[round1, round2]}
-          hasMatchesStarted={false}
-          session={session}
-          players={players}
-          algorithm={algorithm}
-          sessionId="session-1"
-          onRoundChange={jest.fn()}
-        />
+        <Wrapper>
+          <RoundsTab
+            currentRound={round2}
+            currentRoundIndex={1}
+            allRounds={[round1, round2]}
+            hasMatchesStarted={false}
+            session={session}
+            players={players}
+            algorithm={algorithm}
+            sessionId="session-1"
+            onRoundChange={jest.fn()}
+          />
+        </Wrapper>
       );
 
       // Assert - State from round 1 should be cleared
@@ -490,6 +508,9 @@ describe('RoundsTab - Memory Leak Prevention (Issue #6 Fix)', () => {
           expect(true).toBe(true);
         }
       });
+
+      // Cleanup
+      unmount();
     });
   });
 });

@@ -19,14 +19,23 @@ type SubscriptionPlan = 'personal' | 'club';
 export default function SubscriptionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { subscriptionStatus, featureAccess } = useSubscription();
+  const {
+    subscriptionStatus,
+    featureAccess,
+    purchasePackage,
+    isPurchasing,
+    restorePurchases,
+    isRestoring,
+    offerings,
+    offeringsLoading,
+  } = useSubscription();
 
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan>('personal');
   const [billingInterval, setBillingInterval] = useState<BillingInterval>('monthly');
-  const [isProcessing, setIsProcessing] = useState(false);
 
   const currentTier = subscriptionStatus?.tier || 'free';
   const isTrialActive = subscriptionStatus?.isTrialActive || false;
+  const isProcessing = isPurchasing || isRestoring;
 
   // Pricing in IDR
   const pricing = {
@@ -58,30 +67,90 @@ export default function SubscriptionScreen() {
   };
 
   const handleSubscribe = async () => {
-    setIsProcessing(true);
-
     try {
-      // TODO: Integrate with Revenue Cat for iOS StoreKit
-      // For now, just show a toast
-      Toast.show({
-        type: 'info',
-        text1: 'Payment Integration Coming Soon',
-        text2: `${selectedPlan === 'personal' ? 'Personal' : 'Club'} plan - ${formatCurrency(pricing[selectedPlan][billingInterval])}/${billingInterval}`,
-        visibilityTime: 4000,
+      // Find the right package from offerings
+      const packageId = `${selectedPlan}_${billingInterval}`;
+
+      let targetPackage = null;
+      if (offerings && offerings.length > 0) {
+        for (const offering of offerings) {
+          const pkg = offering.availablePackages.find(
+            p => p.identifier.toLowerCase().includes(selectedPlan) &&
+                 p.identifier.toLowerCase().includes(billingInterval)
+          );
+          if (pkg) {
+            targetPackage = pkg;
+            break;
+          }
+        }
+      }
+
+      if (!targetPackage) {
+        Toast.show({
+          type: 'error',
+          text1: 'Package Not Found',
+          text2: 'Please try again or contact support',
+        });
+        return;
+      }
+
+      // Purchase via RevenueCat
+      purchasePackage(targetPackage, {
+        onSuccess: () => {
+          Toast.show({
+            type: 'success',
+            text1: 'Subscription Activated!',
+            text2: `Welcome to ${selectedPlan === 'personal' ? 'Personal' : 'Club'} tier`,
+          });
+          router.back();
+        },
+        onError: (error: any) => {
+          if (error.message === 'User cancelled purchase') {
+            // User cancelled - no error toast
+            return;
+          }
+
+          Toast.show({
+            type: 'error',
+            text1: 'Subscription Failed',
+            text2: error.message || 'Please try again later',
+          });
+        },
       });
-
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
     } catch (error) {
       Toast.show({
         type: 'error',
-        text1: 'Subscription Failed',
+        text1: 'Unexpected Error',
         text2: 'Please try again later',
       });
-    } finally {
-      setIsProcessing(false);
     }
+  };
+
+  const handleRestore = async () => {
+    restorePurchases(undefined, {
+      onSuccess: (data) => {
+        if (data.tier !== 'free') {
+          Toast.show({
+            type: 'success',
+            text1: 'Purchases Restored',
+            text2: `Your ${data.tier} subscription has been restored`,
+          });
+        } else {
+          Toast.show({
+            type: 'info',
+            text1: 'No Purchases Found',
+            text2: 'No active subscriptions to restore',
+          });
+        }
+      },
+      onError: () => {
+        Toast.show({
+          type: 'error',
+          text1: 'Restore Failed',
+          text2: 'Please try again later',
+        });
+      },
+    });
   };
 
   const personalSavings = calculateYearlySavings('personal');
@@ -600,6 +669,25 @@ export default function SubscriptionScreen() {
         <Text style={{ fontSize: 10, color: '#9CA3AF', textAlign: 'center', marginTop: 6 }}>
           Payment via Apple App Store • Cancel anytime
         </Text>
+
+        {/* Restore Purchases Button */}
+        <TouchableOpacity
+          onPress={handleRestore}
+          disabled={isRestoring}
+          style={{
+            marginTop: 12,
+            paddingVertical: 8,
+            alignItems: 'center',
+          }}
+        >
+          {isRestoring ? (
+            <ActivityIndicator color="#6B7280" size="small" />
+          ) : (
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#6B7280' }}>
+              Restore Purchases
+            </Text>
+          )}
+        </TouchableOpacity>
       </View>
     </View>
   );

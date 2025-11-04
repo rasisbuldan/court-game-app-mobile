@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Calendar, Clock } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Logger } from '../../utils/logger';
 
 interface DateTimePickerModalProps {
   dateValue: string | null; // ISO date string (YYYY-MM-DD) or null
@@ -49,7 +50,7 @@ export function DateTimePickerModal({
         return date;
       }
     } catch (e) {
-      console.error('Error parsing datetime:', e);
+      Logger.error('Error parsing datetime', e as Error, { action: 'parseDateTimeValue' });
     }
     return minimumDate || new Date();
   };
@@ -75,7 +76,7 @@ export function DateTimePickerModal({
 
         return `${dateStr}, ${timeStr}`;
       } catch (e) {
-        console.error('Error formatting datetime:', e);
+        Logger.error('Error formatting datetime', e as Error, { action: 'formatDateTime' });
       }
     }
     return placeholder;

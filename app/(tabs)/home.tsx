@@ -1,5 +1,5 @@
-import { View, Text, FlatList, TouchableOpacity, RefreshControl, TextInput, ScrollView, Modal, Animated, Platform, Image } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, FlatList, TouchableOpacity, RefreshControl, TextInput, ScrollView, Modal, Animated, Platform, Image, ActivityIndicator } from 'react-native';
+import { useSafeRouter } from '../../hooks/useSafeRouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
@@ -85,8 +85,8 @@ interface GameSession {
   } | null;
 }
 
-export default function HomeScreen() {
-  const router = useRouter();
+function HomeScreen() {
+  const router = useSafeRouter();
   const { user, signOut } = useAuth();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
@@ -1493,3 +1493,5 @@ export default function HomeScreen() {
     </View>
   );
 }
+
+export default HomeScreen;

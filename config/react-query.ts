@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import type { Persister, PersistedClient } from '@tanstack/react-query-persist-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Logger } from '../utils/logger';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,7 +49,7 @@ export const asyncStoragePersister: Persister = {
       };
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filteredClient));
     } catch (error) {
-      console.error('Failed to persist query client:', error);
+      Logger.error('Failed to persist query client', error as Error, { action: 'persistQueryClient' });
     }
   },
   restoreClient: async () => {
@@ -71,7 +72,7 @@ export const asyncStoragePersister: Persister = {
       }
       return undefined;
     } catch (error) {
-      console.error('Failed to restore query client:', error);
+      Logger.error('Failed to restore query client', error as Error, { action: 'restoreQueryClient' });
       return undefined;
     }
   },
@@ -79,7 +80,7 @@ export const asyncStoragePersister: Persister = {
     try {
       await AsyncStorage.removeItem(STORAGE_KEY);
     } catch (error) {
-      console.error('Failed to remove query client:', error);
+      Logger.error('Failed to remove query client', error as Error, { action: 'removeQueryClient' });
     }
   },
 };

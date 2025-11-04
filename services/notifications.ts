@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { supabase } from '../config/supabase';
+import { Logger } from '../utils/logger';
 
 /**
  * Notification Types
@@ -58,7 +59,7 @@ Notifications.setNotificationHandler({
 export async function registerForPushNotifications(): Promise<string | null> {
   // Check if running on a physical device
   if (!Device.isDevice) {
-    console.warn('Push notifications only work on physical devices');
+    Logger.warn('Push notifications only work on physical devices', { action: 'registerForPushNotifications' });
     return null;
   }
 
@@ -74,15 +75,15 @@ export async function registerForPushNotifications(): Promise<string | null> {
     }
 
     if (finalStatus !== 'granted') {
-      console.warn('Push notification permission denied');
+      Logger.warn('Push notification permission denied', { action: 'registerForPushNotifications' });
       return null;
     }
 
     // Get the push token
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
 
-    if (!projectId) {
-      console.error('Expo project ID not found in app.json');
+    if (!projectId || projectId === '00000000-0000-0000-0000-000000000000') {
+      Logger.warn('Expo project ID not configured - push notifications disabled', { action: 'registerForPushNotifications' });
       return null;
     }
 
@@ -97,7 +98,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
 
     return pushToken.data;
   } catch (error) {
-    console.error('Error registering for push notifications:', error);
+    Logger.error('Error registering for push notifications', error as Error, { action: 'registerForPushNotifications' });
     return null;
   }
 }
@@ -136,9 +137,24 @@ async function setupAndroidChannels() {
 
 /**
  * Store push token in Supabase for the current user
+ * Includes retry logic to handle session propagation delays
  */
-export async function savePushToken(userId: string, token: string): Promise<void> {
+export async function savePushToken(userId: string, token: string, retries = 3): Promise<void> {
   try {
+    // ✅ Verify auth session exists before attempting INSERT
+    // This prevents RLS failures during sign-up when session hasn't propagated yet
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      Logger.warn('Session check failed, retrying...', { userId, retriesLeft: retries });
+      throw sessionError;
+    }
+
+    if (!session) {
+      Logger.warn('No active session found, retrying...', { userId, retriesLeft: retries });
+      throw new Error('No active session - auth not yet propagated');
+    }
+
     const deviceInfo = {
       platform: Platform.OS,
       model: Device.modelName || 'Unknown',
@@ -157,10 +173,17 @@ export async function savePushToken(userId: string, token: string): Promise<void
       });
 
     if (error) throw error;
-    console.log('Push token saved successfully');
+    Logger.info('Push token saved successfully', { userId });
   } catch (error) {
-    console.error('Error saving push token:', error);
-    throw error;
+    // Retry if session isn't ready yet
+    if (retries > 0) {
+      Logger.warn('Retrying push token save...', { userId, retriesLeft: retries - 1 });
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+      return savePushToken(userId, token, retries - 1);
+    }
+
+    Logger.error('Error saving push token after retries', error as Error, { action: 'savePushToken', userId });
+    // Don't throw - push tokens are non-critical, app should continue working
   }
 }
 
@@ -176,9 +199,9 @@ export async function removePushToken(userId: string, token: string): Promise<vo
       .eq('token', token);
 
     if (error) throw error;
-    console.log('Push token removed successfully');
+    Logger.info('Push token removed successfully', { userId });
   } catch (error) {
-    console.error('Error removing push token:', error);
+    Logger.error('Error removing push token', error as Error, { action: 'removePushToken', userId });
   }
 }
 

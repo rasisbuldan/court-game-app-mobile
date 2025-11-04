@@ -92,9 +92,9 @@ module.exports = {
         origin: false
       },
       eas: {
-        projectId: "your-project-id-here"
+        projectId: "acb8be5d-da30-4ae1-ac25-57a6543452cf"
       }
     },
-    owner: "your-expo-username"
+    owner: "rasisbuldandev"
   }
 };

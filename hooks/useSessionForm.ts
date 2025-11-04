@@ -21,6 +21,13 @@ export interface SessionFormData {
   game_time: string;
   duration_hours: number;
   matchup_preference: MatchupPreference;
+  // Extended scoring configuration
+  games_to_win?: number;
+  total_games?: number;
+  points_per_game?: number;
+  win_margin?: number;
+  enable_tiebreak?: boolean;
+  tiebreak_points?: number;
 }
 
 const SCORING_MODE_DEFAULTS: Record<ScoringMode, number> = {
@@ -50,6 +57,13 @@ export function useSessionForm() {
     game_time: '19:00',
     duration_hours: 2,
     matchup_preference: 'any',
+    // Extended scoring config defaults
+    win_margin: 0,
+    games_to_win: 6,
+    total_games: 6,
+    points_per_game: 11,
+    enable_tiebreak: false,
+    tiebreak_points: 7,
   });
 
   const updateField = useCallback(
@@ -98,9 +112,23 @@ export function useSessionForm() {
           }
         }
 
-        // Scoring mode change: Update default points
+        // Scoring mode change: Update default points and related config
         if (field === 'scoring_mode') {
           next.points_per_match = SCORING_MODE_DEFAULTS[value as ScoringMode];
+
+          // Set mode-specific defaults
+          if (value === 'points') {
+            next.points_per_match = 21;
+            next.win_margin = 0;
+          } else if (value === 'first_to') {
+            next.games_to_win = 6;
+            next.points_per_game = 11;
+            next.enable_tiebreak = false;
+            next.tiebreak_points = 7;
+          } else if (value === 'total_games') {
+            next.total_games = 6;
+            next.points_per_game = 11;
+          }
         }
 
         return next;

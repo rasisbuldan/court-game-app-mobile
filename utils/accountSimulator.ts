@@ -8,6 +8,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Logger } from './logger';
 
 // ============================================================================
 // Types
@@ -16,12 +17,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export type SimulatorSubscriptionTier = 'free' | 'personal' | 'club';
 export type SimulatorClubRole = 'owner' | 'admin' | 'member' | null;
 export type SimulatorClubStatus = 'active' | 'pending' | 'removed';
+export type SimulatorPaymentStatus =
+  | 'active'           // Normal active subscription
+  | 'expired'          // Subscription expired
+  | 'expiring_soon'    // Expires within 7 days
+  | 'cancelled'        // User cancelled, but still has access until period end
+  | 'billing_issue'    // Payment failed
+  | 'grace_period';    // In grace period after payment failure
 
 export interface SimulatorSubscriptionState {
   tier: SimulatorSubscriptionTier;
   isTrialActive: boolean;
   trialDaysRemaining: number;
   sessionsUsedThisMonth: number;
+  // RevenueCat payment simulation
+  paymentStatus: SimulatorPaymentStatus;
+  subscriptionExpiresAt: string | null; // ISO date string
+  willRenew: boolean;
+  billingIssueDetectedAt: string | null; // ISO date string
 }
 
 export interface SimulatorClubRoleState {
@@ -41,6 +54,10 @@ export type SimulatorPreset =
   | 'free_limit_reached'
   | 'personal_trial_ending'
   | 'personal_active'
+  | 'personal_expiring_soon'
+  | 'personal_expired'
+  | 'personal_cancelled'
+  | 'personal_billing_issue'
   | 'club_owner'
   | 'club_member';
 
@@ -61,6 +78,10 @@ const DEFAULT_STATE: SimulatorState = {
     isTrialActive: false,
     trialDaysRemaining: 0,
     sessionsUsedThisMonth: 0,
+    paymentStatus: 'active',
+    subscriptionExpiresAt: null,
+    willRenew: true,
+    billingIssueDetectedAt: null,
   },
   clubRole: {
     clubId: null,
@@ -77,6 +98,10 @@ const PRESETS: Record<SimulatorPreset, Partial<SimulatorState>> = {
       isTrialActive: true,
       trialDaysRemaining: 14,
       sessionsUsedThisMonth: 0,
+      paymentStatus: 'active',
+      subscriptionExpiresAt: null,
+      willRenew: true,
+      billingIssueDetectedAt: null,
     },
     clubRole: {
       clubId: null,
@@ -90,6 +115,10 @@ const PRESETS: Record<SimulatorPreset, Partial<SimulatorState>> = {
       isTrialActive: false,
       trialDaysRemaining: 0,
       sessionsUsedThisMonth: 4,
+      paymentStatus: 'active',
+      subscriptionExpiresAt: null,
+      willRenew: true,
+      billingIssueDetectedAt: null,
     },
     clubRole: {
       clubId: null,
@@ -103,6 +132,10 @@ const PRESETS: Record<SimulatorPreset, Partial<SimulatorState>> = {
       isTrialActive: true,
       trialDaysRemaining: 2,
       sessionsUsedThisMonth: 0,
+      paymentStatus: 'active',
+      subscriptionExpiresAt: getDateDaysFromNow(2),
+      willRenew: true,
+      billingIssueDetectedAt: null,
     },
     clubRole: {
       clubId: null,
@@ -116,6 +149,78 @@ const PRESETS: Record<SimulatorPreset, Partial<SimulatorState>> = {
       isTrialActive: false,
       trialDaysRemaining: 0,
       sessionsUsedThisMonth: 0,
+      paymentStatus: 'active',
+      subscriptionExpiresAt: getDateDaysFromNow(25), // Next billing in 25 days
+      willRenew: true,
+      billingIssueDetectedAt: null,
+    },
+    clubRole: {
+      clubId: null,
+      role: null,
+      status: 'active',
+    },
+  },
+  personal_expiring_soon: {
+    subscription: {
+      tier: 'personal',
+      isTrialActive: false,
+      trialDaysRemaining: 0,
+      sessionsUsedThisMonth: 2,
+      paymentStatus: 'expiring_soon',
+      subscriptionExpiresAt: getDateDaysFromNow(5), // Expires in 5 days
+      willRenew: true,
+      billingIssueDetectedAt: null,
+    },
+    clubRole: {
+      clubId: null,
+      role: null,
+      status: 'active',
+    },
+  },
+  personal_expired: {
+    subscription: {
+      tier: 'free', // Reverted to free
+      isTrialActive: false,
+      trialDaysRemaining: 0,
+      sessionsUsedThisMonth: 1,
+      paymentStatus: 'expired',
+      subscriptionExpiresAt: getDateDaysFromNow(-3), // Expired 3 days ago
+      willRenew: false,
+      billingIssueDetectedAt: null,
+    },
+    clubRole: {
+      clubId: null,
+      role: null,
+      status: 'active',
+    },
+  },
+  personal_cancelled: {
+    subscription: {
+      tier: 'personal', // Still has access until period ends
+      isTrialActive: false,
+      trialDaysRemaining: 0,
+      sessionsUsedThisMonth: 3,
+      paymentStatus: 'cancelled',
+      subscriptionExpiresAt: getDateDaysFromNow(12), // 12 days of access left
+      willRenew: false, // User cancelled auto-renewal
+      billingIssueDetectedAt: null,
+    },
+    clubRole: {
+      clubId: null,
+      role: null,
+      status: 'active',
+    },
+  },
+  personal_billing_issue: {
+    subscription: {
+      tier: 'personal', // Still has access (grace period)
+      isTrialActive: false,
+      trialDaysRemaining: 0,
+      sessionsUsedThisMonth: 2,
+      paymentStatus: 'billing_issue',
+      subscriptionExpiresAt: getDateDaysFromNow(3), // 3 days in grace period
+      willRenew: true,
+      billingIssueDetectedAt: getDateDaysFromNow(-2), // Issue detected 2 days ago
     },
     clubRole: {
       clubId: null,
@@ -129,6 +234,10 @@ const PRESETS: Record<SimulatorPreset, Partial<SimulatorState>> = {
       isTrialActive: false,
       trialDaysRemaining: 0,
       sessionsUsedThisMonth: 0,
+      paymentStatus: 'active',
+      subscriptionExpiresAt: getDateDaysFromNow(20),
+      willRenew: true,
+      billingIssueDetectedAt: null,
     },
     clubRole: {
       clubId: 'simulated-club-id',
@@ -142,6 +251,10 @@ const PRESETS: Record<SimulatorPreset, Partial<SimulatorState>> = {
       isTrialActive: false,
       trialDaysRemaining: 0,
       sessionsUsedThisMonth: 0,
+      paymentStatus: 'active',
+      subscriptionExpiresAt: getDateDaysFromNow(15),
+      willRenew: true,
+      billingIssueDetectedAt: null,
     },
     clubRole: {
       clubId: 'simulated-club-id',
@@ -150,6 +263,19 @@ const PRESETS: Record<SimulatorPreset, Partial<SimulatorState>> = {
     },
   },
 };
+
+// ============================================================================
+// Helper Functions (Internal)
+// ============================================================================
+
+/**
+ * Get ISO date string for a date N days from now
+ */
+function getDateDaysFromNow(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
 
 // ============================================================================
 // Core Functions
@@ -188,7 +314,7 @@ export async function loadSimulatorState(): Promise<SimulatorState> {
       },
     };
   } catch (error) {
-    console.error('[AccountSimulator] Failed to load state:', error);
+    Logger.error('Account simulator failed to load state', error as Error, { action: 'loadSimulatorState' });
     return DEFAULT_STATE;
   }
 }
@@ -200,7 +326,7 @@ export async function saveSimulatorState(state: SimulatorState): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (error) {
-    console.error('[AccountSimulator] Failed to save state:', error);
+    Logger.error('Account simulator failed to save state', error as Error, { action: 'saveSimulatorState' });
     throw error;
   }
 }
@@ -212,7 +338,7 @@ export async function clearSimulatorState(): Promise<void> {
   try {
     await AsyncStorage.removeItem(STORAGE_KEY);
   } catch (error) {
-    console.error('[AccountSimulator] Failed to clear state:', error);
+    Logger.error('Account simulator failed to clear state', error as Error, { action: 'clearSimulatorState' });
     throw error;
   }
 }
@@ -327,6 +453,10 @@ export function getPresetLabel(preset: SimulatorPreset): string {
     free_limit_reached: 'Free Limit Reached',
     personal_trial_ending: 'Personal Trial Ending',
     personal_active: 'Personal Active',
+    personal_expiring_soon: 'Personal Expiring Soon',
+    personal_expired: 'Personal Expired',
+    personal_cancelled: 'Personal Cancelled',
+    personal_billing_issue: 'Personal Billing Issue',
     club_owner: 'Club Owner',
     club_member: 'Club Member',
   };
@@ -341,7 +471,11 @@ export function getPresetDescription(preset: SimulatorPreset): string {
     new_free_user: 'Free tier with 14-day trial, 0 sessions used',
     free_limit_reached: 'Free tier, no trial, 4/4 sessions used',
     personal_trial_ending: 'Personal tier with 2 days of trial left',
-    personal_active: 'Personal tier, active subscription',
+    personal_active: 'Personal tier, active subscription, renews in 25 days',
+    personal_expiring_soon: 'Personal tier, expires in 5 days, will auto-renew',
+    personal_expired: 'Subscription expired 3 days ago, reverted to free tier',
+    personal_cancelled: 'User cancelled, 12 days of access remaining',
+    personal_billing_issue: 'Payment failed 2 days ago, 3 days grace period left',
     club_owner: 'Club tier, owner role in simulated club',
     club_member: 'Personal tier, member role in simulated club',
   };

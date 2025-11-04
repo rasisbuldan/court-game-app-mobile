@@ -1,8 +1,13 @@
 /**
- * Centralized Logger - Sentry + Loki + PostHog Integration
+ * Centralized Logger - Sentry + Loki + PostHog Integration (2025)
  *
  * Provides unified logging interface for the app.
  * Routes logs to appropriate services based on severity and environment.
+ *
+ * 2025 Updates:
+ * - Structured metadata for high-cardinality data (user/device/session IDs)
+ * - Automatic device/session context extraction
+ * - Optimized Loki integration with service account tokens
  *
  * Usage:
  *   Logger.error('Failed to create session', error, { userId, sessionId });
@@ -11,15 +16,41 @@
  *   Logger.debug('Local variable state', { players, rounds });
  */
 
-import * as Sentry from '@sentry/react-native';
+import { sentry } from './sentry-wrapper';
+import { posthog, setPostHogInstance } from './posthog-wrapper';
 import { lokiClient } from './loki-client';
+import * as Device from 'expo-device';
+import * as Application from 'expo-application';
 
-// PostHog will be initialized in _layout.tsx and imported here
-// For now, we'll use a lazy reference to avoid circular dependencies
-let posthog: any = null;
+// Global context for structured metadata
+let deviceId: string | null = null;
+let currentUserId: string | null = null;
 
+/**
+ * Set PostHog instance (called from _layout.tsx)
+ * @deprecated Use setPostHogInstance from posthog-wrapper instead
+ */
 export function setPostHog(posthogInstance: any) {
-  posthog = posthogInstance;
+  setPostHogInstance(posthogInstance);
+}
+
+/**
+ * Initialize device context (call once on app start)
+ */
+export async function initializeDeviceContext() {
+  try {
+    // Get device ID based on platform
+    if (Device.osName === 'Android') {
+      deviceId = await Application.getAndroidId();
+    } else {
+      // For iOS, use a combination of model + brand as identifier
+      deviceId = `${Device.modelName || 'unknown'}-${Device.brand || 'unknown'}`;
+    }
+  } catch (error) {
+    if (__DEV__) {
+      console.error('[Logger] Failed to get device ID:', error);
+    }
+  }
 }
 
 // ============================================================================
@@ -45,7 +76,7 @@ export class Logger {
    *
    * Destinations:
    * - Sentry (always, with high priority)
-   * - Loki (production only)
+   * - Loki (production only, with structured metadata)
    * - PostHog (as error event)
    * - Console (development only)
    *
@@ -61,11 +92,11 @@ export class Logger {
       console.error(`[ERROR] ${message}`, error, context);
     }
 
-    // Send to Sentry (always, even in dev if you want to test)
-    Sentry.captureException(error || new Error(message), {
+    // Send to Sentry (wrapper handles feature flag check)
+    sentry.captureException(error || new Error(message), {
       level: 'error',
       tags: {
-        userId: context?.userId,
+        userId: context?.userId || currentUserId || undefined,
         sessionId: context?.sessionId,
         clubId: context?.clubId,
         action: context?.action,
@@ -74,28 +105,36 @@ export class Logger {
       extra: context?.metadata,
     });
 
-    // Send to Loki (production only)
+    // Send to Loki with structured metadata (2025)
     lokiClient.push({
       level: 'error',
       message,
       context: {
         error: error?.message,
         stack: error?.stack,
-        ...context,
+        action: context?.action,
+        screen: context?.screen,
+        clubId: context?.clubId,
+        ...context?.metadata,
+      },
+      // High-cardinality data goes in metadata (not indexed, better performance)
+      metadata: {
+        userId: context?.userId || currentUserId || undefined,
+        deviceId: deviceId || undefined,
+        sessionId: context?.sessionId,
+        traceId: error?.cause ? String(error.cause) : undefined,
       },
     });
 
-    // Track as PostHog event (helps correlate errors with user behavior)
-    if (posthog) {
-      posthog.capture('error_occurred', {
-        message,
-        errorType: error?.name,
-        errorMessage: error?.message,
-        action: context?.action,
-        screen: context?.screen,
-        userId: context?.userId,
-      });
-    }
+    // Track as PostHog event (wrapper handles feature flag check and error handling)
+    posthog.capture('error_occurred', {
+      message,
+      errorType: error?.name,
+      errorMessage: error?.message,
+      action: context?.action,
+      screen: context?.screen,
+      userId: context?.userId || currentUserId,
+    });
   }
 
   /**
@@ -103,7 +142,7 @@ export class Logger {
    *
    * Destinations:
    * - Sentry (with warning level)
-   * - Loki (production only)
+   * - Loki (production only, with structured metadata)
    * - Console (development only)
    *
    * Use for:
@@ -117,23 +156,33 @@ export class Logger {
       console.warn(`[WARN] ${message}`, context);
     }
 
-    // Send to Sentry with warning level
-    Sentry.captureMessage(message, {
+    // Send to Sentry with warning level (wrapper handles feature flag check)
+    sentry.captureMessage(message, {
       level: 'warning',
       tags: {
-        userId: context?.userId,
+        userId: context?.userId || currentUserId || undefined,
         sessionId: context?.sessionId,
         action: context?.action,
         screen: context?.screen,
       },
-      extra: context,
+      extra: context as Record<string, any>,
     });
 
-    // Send to Loki (production only)
+    // Send to Loki with structured metadata (2025)
     lokiClient.push({
       level: 'warn',
       message,
-      context,
+      context: {
+        action: context?.action,
+        screen: context?.screen,
+        clubId: context?.clubId,
+        ...context?.metadata,
+      },
+      metadata: {
+        userId: context?.userId || currentUserId || undefined,
+        deviceId: deviceId || undefined,
+        sessionId: context?.sessionId,
+      },
     });
   }
 
@@ -141,7 +190,7 @@ export class Logger {
    * Info logging - Notable events and user actions
    *
    * Destinations:
-   * - Loki (production only)
+   * - Loki (production only, with structured metadata)
    * - Console (development only)
    *
    * Use for:
@@ -155,11 +204,21 @@ export class Logger {
       console.log(`[INFO] ${message}`, context);
     }
 
-    // Send to Loki (production only)
+    // Send to Loki with structured metadata (2025)
     lokiClient.push({
       level: 'info',
       message,
-      context,
+      context: {
+        action: context?.action,
+        screen: context?.screen,
+        clubId: context?.clubId,
+        ...context?.metadata,
+      },
+      metadata: {
+        userId: context?.userId || currentUserId || undefined,
+        deviceId: deviceId || undefined,
+        sessionId: context?.sessionId,
+      },
     });
   }
 
@@ -188,31 +247,35 @@ export class Logger {
    * Call this after user login to associate logs with specific users
    */
   static setUser(userId: string, email?: string, metadata?: Record<string, any>) {
-    // Set Sentry user context
-    Sentry.setUser({
+    // Store user ID for structured metadata
+    currentUserId = userId;
+
+    // Set Sentry user context (wrapper handles feature flag check)
+    sentry.setUser({
       id: userId,
       email,
       ...metadata,
     });
 
-    // Set PostHog user identity
-    if (posthog) {
-      posthog.identify(userId, {
-        email,
-        ...metadata,
-      });
-    }
+    // Set PostHog user identity (wrapper handles feature flag check and error handling)
+    posthog.identify(userId, {
+      email,
+      ...metadata,
+    });
   }
 
   /**
    * Clear user context (call on logout)
    */
   static clearUser() {
-    Sentry.setUser(null);
+    // Clear stored user ID
+    currentUserId = null;
 
-    if (posthog) {
-      posthog.reset();
-    }
+    // Clear Sentry user context (wrapper handles feature flag check)
+    sentry.setUser(null);
+
+    // Reset PostHog user (wrapper handles feature flag check and error handling)
+    posthog.reset();
   }
 
   /**
@@ -226,7 +289,8 @@ export class Logger {
     level: 'debug' | 'info' | 'warning' | 'error' = 'info',
     data?: Record<string, any>
   ) {
-    Sentry.addBreadcrumb({
+    // Wrapper handles feature flag check
+    sentry.addBreadcrumb({
       category,
       message,
       level,
@@ -244,38 +308,54 @@ export class Logger {
    * - Algorithm execution time
    */
   static timing(name: string, durationMs: number, context?: LogContext) {
-    // Send to PostHog as event
-    if (posthog) {
-      posthog.capture('performance_timing', {
-        name,
-        duration_ms: durationMs,
-        ...context,
-      });
-    }
+    // Send to PostHog as event (wrapper handles feature flag check and error handling)
+    posthog.capture('performance_timing', {
+      name,
+      duration_ms: durationMs,
+      ...context,
+    });
 
-    // Log to Loki for analysis
+    // Log to Loki with structured metadata (2025)
     lokiClient.push({
       level: 'info',
       message: `Performance: ${name} took ${durationMs}ms`,
       context: {
         timingName: name,
         durationMs,
-        ...context,
+        action: context?.action,
+        screen: context?.screen,
+        ...context?.metadata,
+      },
+      metadata: {
+        userId: context?.userId || currentUserId || undefined,
+        deviceId: deviceId || undefined,
+        sessionId: context?.sessionId,
       },
     });
 
-    // Log slow operations to Sentry as warnings
+    // Log slow operations to Sentry as warnings (wrapper handles feature flag check)
     if (durationMs > 1000) {
       // >1 second is slow
-      Sentry.captureMessage(`Slow operation: ${name} took ${durationMs}ms`, {
+      sentry.captureMessage(`Slow operation: ${name} took ${durationMs}ms`, {
         level: 'warning',
         tags: {
           operation: name,
           duration_ms: String(durationMs),
         },
-        extra: context,
+        extra: context as Record<string, any>,
       });
     }
+  }
+
+  /**
+   * Mask email for privacy in logs
+   * Example: "user@example.com" → "u***@example.com"
+   */
+  static maskEmail(email: string): string {
+    const [localPart, domain] = email.split('@');
+    if (!domain) return email; // Invalid email
+    const masked = localPart.charAt(0) + '***';
+    return `${masked}@${domain}`;
   }
 }
 
@@ -291,3 +371,4 @@ export const setUser = Logger.setUser.bind(Logger);
 export const clearUser = Logger.clearUser.bind(Logger);
 export const addBreadcrumb = Logger.addBreadcrumb.bind(Logger);
 export const timing = Logger.timing.bind(Logger);
+export const maskEmail = Logger.maskEmail.bind(Logger);

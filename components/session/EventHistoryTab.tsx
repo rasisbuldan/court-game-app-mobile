@@ -4,6 +4,7 @@ import { Clock, Play, Edit, UserPlus, TrendingUp, Download } from 'lucide-react-
 import { format } from 'date-fns';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { Logger } from '../../utils/logger';
 
 interface EventHistoryTabProps {
   events: any[];
@@ -54,7 +55,7 @@ export const EventHistoryTab = memo(function EventHistoryTab({ events, sessionNa
         Alert.alert('Success', `Event history saved to ${fileName}`);
       }
     } catch (error) {
-      console.error('Error exporting event history:', error);
+      Logger.error('Error exporting event history', error as Error, { action: 'exportEventHistory' });
       Alert.alert('Error', 'Failed to export event history');
     }
   };

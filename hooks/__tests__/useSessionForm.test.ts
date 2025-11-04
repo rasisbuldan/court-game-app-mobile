@@ -72,7 +72,7 @@ describe('useSessionForm', () => {
   });
 
   describe('Sport Change Auto-Adjustments', () => {
-    it('resets scoring mode to first_to_games when switching to tennis from points mode', () => {
+    it('resets scoring mode to first_to when switching to tennis from points mode', () => {
       const { result } = renderHook(() => useSessionForm());
 
       // Start with padel + points
@@ -83,11 +83,11 @@ describe('useSessionForm', () => {
         result.current.updateField('sport', 'tennis');
       });
 
-      expect(result.current.formData.scoring_mode).toBe('first_to_games');
+      expect(result.current.formData.scoring_mode).toBe('first_to');
       expect(result.current.formData.points_per_match).toBe(6);
     });
 
-    it('resets scoring mode to first_to_games when switching to tennis from first_to mode', () => {
+    it('keeps scoring mode as first_to when switching to tennis from first_to mode', () => {
       const { result } = renderHook(() => useSessionForm());
 
       act(() => {
@@ -100,16 +100,17 @@ describe('useSessionForm', () => {
         result.current.updateField('sport', 'tennis');
       });
 
-      expect(result.current.formData.scoring_mode).toBe('first_to_games');
+      // Switching to tennis from first_to keeps first_to mode
+      expect(result.current.formData.scoring_mode).toBe('first_to');
       expect(result.current.formData.points_per_match).toBe(6);
     });
 
-    it('resets scoring mode to points when switching to padel from games mode', () => {
+    it('resets scoring mode to points when switching to padel from first_to mode', () => {
       const { result } = renderHook(() => useSessionForm());
 
       act(() => {
         result.current.updateField('sport', 'tennis');
-        result.current.updateField('scoring_mode', 'first_to_games');
+        result.current.updateField('scoring_mode', 'first_to');
       });
 
       act(() => {
@@ -234,8 +235,7 @@ describe('useSessionForm', () => {
 
       const scoringModes: Array<{ mode: any; expectedPoints: number }> = [
         { mode: 'points', expectedPoints: 21 },
-        { mode: 'first_to', expectedPoints: 11 },
-        { mode: 'first_to_games', expectedPoints: 6 },
+        { mode: 'first_to', expectedPoints: 6 },
         { mode: 'total_games', expectedPoints: 6 },
       ];
 
@@ -282,7 +282,7 @@ describe('useSessionForm', () => {
       expect(result.current.formData.courts).toBe(3);
       expect(result.current.formData.type).toBe('mixed_mexicano');
       expect(result.current.formData.matchup_preference).toBe('mixed_only');
-      expect(result.current.formData.scoring_mode).toBe('first_to_games');
+      expect(result.current.formData.scoring_mode).toBe('first_to');
     });
 
     it('maintains data integrity through sport + mode + courts changes', () => {
@@ -295,7 +295,7 @@ describe('useSessionForm', () => {
       });
 
       expect(result.current.formData.courts).toBe(2); // Auto-adjusted for parallel
-      expect(result.current.formData.scoring_mode).toBe('first_to_games'); // Tennis default
+      expect(result.current.formData.scoring_mode).toBe('first_to'); // Tennis default
 
       // Try to set to 1 court
       act(() => {

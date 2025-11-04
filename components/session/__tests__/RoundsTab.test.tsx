@@ -206,7 +206,7 @@ describe('RoundsTab Component', () => {
       const chevrons = UNSAFE_getAllByType(require('lucide-react-native').ChevronLeft);
       if (chevrons.length > 0) {
         fireEvent.press(chevrons[0].parent!);
-        expect(onRoundChange).toHaveBeenCalledWith(0);
+        expect(onRoundChange).toHaveBeenCalledWith(0, 'backward');
       }
     });
 
@@ -234,7 +234,7 @@ describe('RoundsTab Component', () => {
       if (chevrons.length > 0) {
         // Verify chevron is disabled (low opacity)
         expect(chevrons[0].parent?.props.style).toEqual(
-          expect.objectContaining({ opacity: 0.3 })
+          expect.objectContaining({ opacity: 0.4 })
         );
       }
     });
@@ -264,14 +264,19 @@ describe('RoundsTab Component', () => {
 
         const scoreInputs = getAllByPlaceholderText('0');
 
-        // Enter team 1 score
+        // Enter team 1 score - this should auto-fill team 2 in local state
         fireEvent.changeText(scoreInputs[0], '14');
         fireEvent(scoreInputs[0], 'blur');
+
+        // Auto-fill happens but doesn't save yet - need to blur team2 to confirm
+        fireEvent(scoreInputs[1], 'blur');
 
         await waitFor(() => {
           expect(mockMutate).toHaveBeenCalledWith(
             expect.objectContaining({
+              matchIndex: 0,
               team1Score: 14,
+              team2Score: 10,
             })
           );
         });
@@ -304,9 +309,13 @@ describe('RoundsTab Component', () => {
         fireEvent.changeText(scoreInputs[0], '14');
         fireEvent(scoreInputs[0], 'blur');
 
+        // Blur team2 to trigger save with auto-filled value
+        fireEvent(scoreInputs[1], 'blur');
+
         await waitFor(() => {
           expect(mockMutate).toHaveBeenCalledWith(
             expect.objectContaining({
+              matchIndex: 0,
               team1Score: 14,
               team2Score: 10, // Auto-filled
             })
@@ -336,15 +345,24 @@ describe('RoundsTab Component', () => {
 
         const scoreInputs = getAllByPlaceholderText('0');
 
+        // Enter team1 score only
         fireEvent.changeText(scoreInputs[0], '21');
         fireEvent(scoreInputs[0], 'blur');
 
-        // In first_to mode, should NOT auto-fill
+        // Should NOT save yet - need both scores in first_to mode
+        expect(mockMutate).not.toHaveBeenCalled();
+
+        // Now enter team2 score
+        fireEvent.changeText(scoreInputs[1], '19');
+        fireEvent(scoreInputs[1], 'blur');
+
+        // Now it should save with both scores
         await waitFor(() => {
           expect(mockMutate).toHaveBeenCalledWith(
             expect.objectContaining({
+              matchIndex: 0,
               team1Score: 21,
-              team2Score: 0, // Not auto-filled
+              team2Score: 19,
             })
           );
         });
@@ -437,15 +455,9 @@ describe('RoundsTab Component', () => {
         fireEvent.changeText(scoreInputs[0], '30');
         fireEvent(scoreInputs[0], 'blur');
 
-        // Should still save but auto-fill will be capped at 0
-        await waitFor(() => {
-          expect(mockMutate).toHaveBeenCalledWith(
-            expect.objectContaining({
-              team1Score: 30,
-              team2Score: 0, // Capped at 0 (max would be negative)
-            })
-          );
-        });
+        // Should NOT save because score exceeds maximum
+        // The component keeps invalid scores in local state only
+        expect(mockMutate).not.toHaveBeenCalled();
       });
     });
 
@@ -457,7 +469,7 @@ describe('RoundsTab Component', () => {
         round.matches[0].team1Score = 21;
         round.matches[0].team2Score = 19;
 
-        const { getByText } = render(
+        const { UNSAFE_getAllByType } = render(
           <RoundsTab
             currentRound={round}
             currentRoundIndex={0}
@@ -472,9 +484,11 @@ describe('RoundsTab Component', () => {
           { wrapper: createWrapper() }
         );
 
-        // Try to generate next round
-        const nextButton = getByText(/ROUND 1 OF 1/);
-        fireEvent.press(nextButton.parent!.parent!);
+        // Find and press the ChevronRight button to advance to next round
+        const rightChevrons = UNSAFE_getAllByType(require('lucide-react-native').ChevronRight);
+        if (rightChevrons.length > 0) {
+          fireEvent.press(rightChevrons[0].parent!);
+        }
 
         // Should allow generation since one team reached 21
         expect(mockMutate).toHaveBeenCalled();
@@ -485,14 +499,14 @@ describe('RoundsTab Component', () => {
   describe('Round Generation Validation', () => {
     it('prevents next round if not all matches scored', () => {
       const players = createMockPlayers(8);
-      const session = createMockSession();
+      const session = createMockSession({ scoring_mode: 'fixed', points_per_match: 24 });
       const round = createMockRound(1, 2);
       // Only first match has scores
       round.matches[0].team1Score = 12;
       round.matches[0].team2Score = 12;
       // Second match has no scores
 
-      const { getByText } = render(
+      const { UNSAFE_getAllByType } = render(
         <RoundsTab
           currentRound={round}
           currentRoundIndex={0}
@@ -507,8 +521,11 @@ describe('RoundsTab Component', () => {
         { wrapper: createWrapper() }
       );
 
-      // Try to go to next round
-      fireEvent.press(getByText(/ROUND 1 OF 1/).parent!.parent!);
+      // Find and press the ChevronRight button to try advancing to next round
+      const rightChevrons = UNSAFE_getAllByType(require('lucide-react-native').ChevronRight);
+      if (rightChevrons.length > 0) {
+        fireEvent.press(rightChevrons[0].parent!);
+      }
 
       // Should show error toast
       expect(Toast.show).toHaveBeenCalledWith(
@@ -524,10 +541,15 @@ describe('RoundsTab Component', () => {
 
     it('allows next round when all matches scored', () => {
       const players = createMockPlayers(8);
-      const session = createMockSession();
-      const round = createMockRound(1, 2, true);
+      const session = createMockSession({ scoring_mode: 'fixed', points_per_match: 24 });
+      const round = createMockRound(1, 2);
+      // Set valid scores for both matches
+      round.matches[0].team1Score = 14;
+      round.matches[0].team2Score = 10;
+      round.matches[1].team1Score = 12;
+      round.matches[1].team2Score = 12;
 
-      const { getByText } = render(
+      const { UNSAFE_getAllByType } = render(
         <RoundsTab
           currentRound={round}
           currentRoundIndex={0}
@@ -542,7 +564,11 @@ describe('RoundsTab Component', () => {
         { wrapper: createWrapper() }
       );
 
-      fireEvent.press(getByText(/ROUND 1 OF 1/).parent!.parent!);
+      // Find and press the ChevronRight button to advance to next round
+      const rightChevrons = UNSAFE_getAllByType(require('lucide-react-native').ChevronRight);
+      if (rightChevrons.length > 0) {
+        fireEvent.press(rightChevrons[0].parent!);
+      }
 
       // Should generate round
       expect(mockMutate).toHaveBeenCalled();
@@ -662,7 +688,7 @@ describe('RoundsTab Component', () => {
       const algorithm = new MexicanoAlgorithm(players, 2);
       const round = algorithm.generateRound(1);
 
-      const { queryByText } = render(
+      const { getByText } = render(
         <RoundsTab
           currentRound={round}
           currentRoundIndex={0}
@@ -677,7 +703,12 @@ describe('RoundsTab Component', () => {
         { wrapper: createWrapper() }
       );
 
-      expect(queryByText('Switch Player')).toBeNull();
+      // Button is rendered but pressing it does nothing when no callback
+      const switchButton = getByText('Switch Player');
+      expect(switchButton).toBeTruthy();
+
+      // Verify it doesn't crash when pressed without callback
+      fireEvent.press(switchButton);
     });
 
     it('shows player count correctly', () => {
@@ -909,13 +940,19 @@ describe('RoundsTab Component', () => {
 
       const scoreInputs = getAllByPlaceholderText('0');
 
+      // Enter team1 score - should auto-fill team2
       fireEvent.changeText(scoreInputs[0], '99');
       fireEvent(scoreInputs[0], 'blur');
+
+      // Blur team2 to trigger save with auto-filled value
+      fireEvent(scoreInputs[1], 'blur');
 
       await waitFor(() => {
         expect(mockMutate).toHaveBeenCalledWith(
           expect.objectContaining({
+            matchIndex: 0,
             team1Score: 99,
+            team2Score: 0, // Auto-filled: 99 - 99 = 0
           })
         );
       });
@@ -924,12 +961,19 @@ describe('RoundsTab Component', () => {
 
   describe('Offline Behavior', () => {
     it('queues score updates when offline', async () => {
+      // Mock offline state - need to override before render
+      const useNetworkStatusMock = require('@tanstack/react-query').useMutation as jest.Mock;
+
+      // Store original mock
+      const originalMock = require('../../../hooks/useNetworkStatus').useNetworkStatus;
+
+      // Override with offline state
       (require('../../../hooks/useNetworkStatus').useNetworkStatus as jest.Mock) = jest.fn(() => ({
-        isOnline: false,
+        isOnline: false
       }));
 
       const players = createMockPlayers(8);
-      const session = createMockSession();
+      const session = createMockSession({ scoring_mode: 'fixed', points_per_match: 24 });
       const round = createMockRound(1, 1);
 
       const { getAllByPlaceholderText } = render(
@@ -949,13 +993,26 @@ describe('RoundsTab Component', () => {
 
       const scoreInputs = getAllByPlaceholderText('0');
 
+      // Enter score - should auto-fill team2
       fireEvent.changeText(scoreInputs[0], '14');
       fireEvent(scoreInputs[0], 'blur');
 
+      // Blur team2 to trigger save
+      fireEvent(scoreInputs[1], 'blur');
+
       // Should still call mutate (which will queue offline)
       await waitFor(() => {
-        expect(mockMutate).toHaveBeenCalled();
+        expect(mockMutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            matchIndex: 0,
+            team1Score: 14,
+            team2Score: 10,
+          })
+        );
       });
+
+      // Restore original mock
+      (require('../../../hooks/useNetworkStatus').useNetworkStatus as jest.Mock) = originalMock;
     });
   });
 });

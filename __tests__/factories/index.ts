@@ -100,10 +100,10 @@ export function createMatch(
  * Create a test Round with default values
  */
 export function roundFactory(overrides: Partial<Round> = {}): Round {
-  const roundNumber = overrides.roundNumber || ++roundIdCounter;
+  const number = overrides.number || ++roundIdCounter;
 
   return {
-    roundNumber,
+    number,
     matches: [matchFactory()],
     sittingPlayers: [],
     ...overrides,
@@ -114,12 +114,12 @@ export function roundFactory(overrides: Partial<Round> = {}): Round {
  * Create a complete Round with specific matches
  */
 export function createRound(
-  roundNumber: number,
+  number: number,
   matches: Match[],
   sittingPlayers: Player[] = []
 ): Round {
   return {
-    roundNumber,
+    number,
     matches,
     sittingPlayers,
   };
@@ -176,7 +176,10 @@ export function createTournamentData(playerCount: number = 8, roundCount: number
       const team1Score = Math.floor(Math.random() * 12) + 9; // 9-20
       const team2Score = 24 - team1Score;
 
-      matches.push(createMatch(team1, team2, team1Score, team2Score));
+      const match = createMatch(team1, team2, team1Score, team2Score);
+      // Mark match as completed
+      (match as any).completed = true;
+      matches.push(match);
     }
 
     rounds.push(createRound(r + 1, matches, sittingPlayers));

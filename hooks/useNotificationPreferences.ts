@@ -12,6 +12,8 @@ export interface NotificationPreferences {
   match_results: boolean;
   session_updates: boolean;
   club_announcements: boolean;
+  sound_effects: boolean;
+  dark_mode: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -47,6 +49,8 @@ export function useNotificationPreferences(userId: string | undefined) {
               match_results: true,
               session_updates: true,
               club_announcements: true,
+              sound_effects: true,
+              dark_mode: false,
             })
             .select()
             .single();

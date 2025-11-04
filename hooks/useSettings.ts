@@ -39,6 +39,7 @@ export function useSettings() {
     refetch,
   } = useQuery({
     queryKey: ['user_settings', user?.id],
+    enabled: !!user?.id, // Only fetch when user is authenticated
     queryFn: async () => {
       if (!user?.id) {
         throw new Error('User not authenticated');
@@ -74,6 +75,30 @@ export function useSettings() {
             .single();
 
           if (createError) {
+            // If duplicate key error (settings created during sign-up), try fetching again
+            if (createError.code === '23505') {
+              Logger.info('useSettings: Settings already exist, fetching...', {
+                userId: user.id,
+                action: 'fetch_existing_settings',
+              });
+
+              const { data: existingSettings, error: refetchError } = await supabase
+                .from('user_settings')
+                .select('*')
+                .eq('user_id', user.id)
+                .single();
+
+              if (refetchError) {
+                Logger.error('useSettings: Failed to fetch existing settings', refetchError, {
+                  userId: user.id,
+                  action: 'fetch_existing_settings',
+                });
+                throw refetchError;
+              }
+
+              return existingSettings as UserSettings;
+            }
+
             Logger.error('useSettings: Failed to create default settings', createError, {
               userId: user.id,
               action: 'create_default_settings',

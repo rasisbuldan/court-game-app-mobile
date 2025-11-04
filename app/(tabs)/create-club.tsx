@@ -20,6 +20,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, Check, Camera, Users } from 'lucide-react-native';
 import Toast from 'react-native-toast-message';
 import * as ImagePicker from 'expo-image-picker';
+import { validateClubName, validateBio } from '../../utils/formValidation';
+import { Logger } from '../../utils/logger';
 
 export default function CreateClubScreen() {
   const router = useRouter();
@@ -95,7 +97,7 @@ export default function CreateClubScreen() {
           });
 
         if (uploadError) {
-          console.error('Upload error:', uploadError);
+          Logger.error('Club logo upload failed', uploadError, { action: 'uploadClubLogo', userId: user?.id });
           throw uploadError;
         }
 
@@ -113,7 +115,7 @@ export default function CreateClubScreen() {
         });
       }
     } catch (error) {
-      console.error('Error uploading logo:', error);
+      Logger.error('Error uploading club logo', error as Error, { action: 'uploadClubLogo', userId: user?.id });
       Toast.show({
         type: 'error',
         text1: 'Upload failed',
@@ -129,8 +131,6 @@ export default function CreateClubScreen() {
       name: '',
       bio: '',
     };
-
-    let isValid = true;
 
     // Check subscription-based club limit
     if (featureAccess && !featureAccess.canCreateMultipleClubs) {
@@ -155,28 +155,19 @@ export default function CreateClubScreen() {
     }
 
     // Name validation
-    if (!name.trim()) {
-      newErrors.name = 'Club name is required';
-      isValid = false;
-    } else if (name.length < 3) {
-      newErrors.name = 'Club name must be at least 3 characters';
-      isValid = false;
-    } else if (name.length > 50) {
-      newErrors.name = 'Club name must be less than 50 characters';
-      isValid = false;
-    } else if (!/^[a-zA-Z0-9\s\-_]+$/.test(name)) {
-      newErrors.name = 'Club name can only contain letters, numbers, spaces, hyphens, and underscores';
-      isValid = false;
+    const nameResult = validateClubName(name, 3, 50);
+    if (!nameResult.isValid) {
+      newErrors.name = nameResult.message;
     }
 
-    // Bio validation (optional but has limits)
-    if (bio && bio.length > 200) {
-      newErrors.bio = 'Bio must be less than 200 characters';
-      isValid = false;
+    // Bio validation (optional)
+    const bioResult = validateBio(bio, 200, false);
+    if (!bioResult.isValid) {
+      newErrors.bio = bioResult.message;
     }
 
     setErrors(newErrors);
-    return isValid;
+    return newErrors.name === '' && newErrors.bio === '';
   };
 
   const handleCreate = async () => {
@@ -208,8 +199,11 @@ export default function CreateClubScreen() {
           router.replace('/(tabs)/profile');
         },
         onError: (error) => {
-          // Keep console.error for actual errors (appropriate)
-          console.error('[CreateClub] Mutation onError called:', error);
+          Logger.error('Create club mutation failed', error as Error, {
+            action: 'createClub',
+            userId: user?.id,
+            metadata: { clubName: name.trim() }
+          });
         },
       }
     );

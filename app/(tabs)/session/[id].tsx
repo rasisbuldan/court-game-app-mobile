@@ -15,6 +15,7 @@ import { tabTransitionConfig } from '../../../utils/animations';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 import { toPlayerStatus, toGender, toMatchupPreference, toSessionType } from '../../../utils/typeGuards';
+import { Logger } from '../../../utils/logger';
 
 // PHASE 2 OPTIMIZATION: Lazy load heavy tab components for better initial load performance
 const RoundsTab = lazy(() => import('../../../components/session/RoundsTab').then(m => ({ default: m.RoundsTab })));
@@ -48,7 +49,10 @@ class LazyLoadErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('[LazyLoadErrorBoundary] Component failed to load:', error, errorInfo);
+    Logger.error('Lazy loaded component failed to load', error, {
+      action: 'lazyLoadComponent',
+      metadata: { componentStack: errorInfo.componentStack }
+    });
   }
 
   render() {
@@ -220,8 +224,11 @@ export default function SessionScreen() {
     if (typeof session.round_data === 'string') {
       try {
         return JSON.parse(session.round_data);
-      } catch {
-        console.error('Failed to parse round_data:', session.round_data);
+      } catch (error) {
+        Logger.error('Failed to parse round_data', error as Error, {
+          action: 'parseRoundData',
+          sessionId: session.id
+        });
         return [];
       }
     }
@@ -248,7 +255,11 @@ export default function SessionScreen() {
         setAlgorithmError(null); // Clear any previous errors
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown algorithm error';
-        console.error('[Algorithm Init Error]:', error);
+        Logger.error('Algorithm initialization failed', error as Error, {
+          action: 'initAlgorithm',
+          sessionId: session?.id,
+          metadata: { playerCount: players.length, courts: session.courts }
+        });
 
         // Set error state and show toast
         setAlgorithmError(errorMessage);
@@ -490,7 +501,19 @@ export default function SessionScreen() {
 
       return newPlayer;
     },
-    onSuccess: () => {
+    onSuccess: (newPlayer, variables) => {
+      Logger.info('Player added successfully', {
+        action: 'addPlayer',
+        sessionId: id,
+        userId: user?.id,
+        metadata: {
+          playerId: newPlayer.id,
+          playerName: variables.name,
+          rating: variables.rating,
+          totalPlayers: players.length + 1,
+        },
+      });
+
       queryClient.invalidateQueries({ queryKey: ['players', id] });
       queryClient.invalidateQueries({ queryKey: ['eventHistory', id] });
       Toast.show({
@@ -528,8 +551,21 @@ export default function SessionScreen() {
         description: `${player?.name} was removed from the session`,
         metadata: { player_id: playerId, player_name: player?.name },
       });
+
+      return player;
     },
-    onSuccess: () => {
+    onSuccess: (player) => {
+      Logger.info('Player removed successfully', {
+        action: 'removePlayer',
+        sessionId: id,
+        userId: user?.id,
+        metadata: {
+          playerId: player?.id,
+          playerName: player?.name,
+          totalPlayers: players.length - 1,
+        },
+      });
+
       queryClient.invalidateQueries({ queryKey: ['players', id] });
       queryClient.invalidateQueries({ queryKey: ['eventHistory', id] });
       Toast.show({
@@ -550,6 +586,9 @@ export default function SessionScreen() {
   // Change player status mutation
   const changeStatusMutation = useMutation({
     mutationFn: async ({ playerId, newStatus }: { playerId: string; newStatus: string }) => {
+      const player = players.find(p => p.id === playerId);
+      const oldStatus = player?.status;
+
       const { error } = await supabase
         .from('players')
         .update({ status: newStatus })
@@ -557,15 +596,28 @@ export default function SessionScreen() {
 
       if (error) throw error;
 
-      const player = players.find(p => p.id === playerId);
       await supabase.from('event_history').insert({
         session_id: id,
         event_type: 'status_change',
         description: `${player?.name} status changed to ${newStatus}`,
         metadata: { player_id: playerId, new_status: newStatus },
       });
+
+      return { player, oldStatus, newStatus };
     },
-    onSuccess: () => {
+    onSuccess: ({ player, oldStatus, newStatus }) => {
+      Logger.info('Player status changed', {
+        action: 'changePlayerStatus',
+        sessionId: id,
+        userId: user?.id,
+        metadata: {
+          playerId: player?.id,
+          playerName: player?.name,
+          oldStatus,
+          newStatus,
+        },
+      });
+
       queryClient.invalidateQueries({ queryKey: ['players', id] });
       queryClient.invalidateQueries({ queryKey: ['eventHistory', id] });
     },
@@ -1093,7 +1145,11 @@ export default function SessionScreen() {
         try {
           performPlayerSwap(round, variables.matchIndex, variables.position, oldPlayer, newPlayer);
         } catch (error) {
-          console.error('[Optimistic Update Failed]:', error);
+          Logger.error('Optimistic player swap update failed', error as Error, {
+            action: 'optimisticPlayerSwap',
+            sessionId: id,
+            metadata: { matchIndex: variables.matchIndex, position: variables.position }
+          });
           return old;
         }
 

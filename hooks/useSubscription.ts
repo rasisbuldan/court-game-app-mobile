@@ -14,6 +14,9 @@ import { supabase } from '../config/supabase';
 import { useAuth } from './useAuth';
 import { differenceInDays, isAfter } from 'date-fns';
 import { checkSimulatorOverrides } from '../utils/accountSimulator';
+import * as RevenueCat from '../services/revenueCat';
+import { Logger } from '../utils/logger';
+import type { PurchasesPackage } from 'react-native-purchases';
 
 // ============================================================================
 // Types
@@ -81,6 +84,29 @@ const PAID_TIER_LIMITS = {
 export function useSubscription() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [isRevenueCatReady, setIsRevenueCatReady] = useState(false);
+
+  // Initialize RevenueCat when user is authenticated
+  useEffect(() => {
+    if (user?.id && !RevenueCat.isRevenueCatInitialized()) {
+      RevenueCat.initializeRevenueCat(user.id)
+        .then(() => {
+          setIsRevenueCatReady(true);
+          Logger.info('useSubscription: RevenueCat initialized', {
+            action: 'init_revenuecat',
+            userId: user.id,
+          });
+        })
+        .catch((error) => {
+          Logger.error('useSubscription: Failed to initialize RevenueCat', error, {
+            action: 'init_revenuecat_error',
+            userId: user.id,
+          });
+        });
+    } else if (RevenueCat.isRevenueCatInitialized()) {
+      setIsRevenueCatReady(true);
+    }
+  }, [user?.id]);
 
   // Fetch user's subscription status
   const {
@@ -96,7 +122,7 @@ export function useSubscription() {
       // Check for simulator overrides (dev/test accounts only)
       const simulatorState = await checkSimulatorOverrides(user.email);
       if (simulatorState?.enabled) {
-        console.log('[useSubscription] Using simulator overrides:', simulatorState);
+        Logger.debug('Using simulator subscription overrides', simulatorState);
         // Return simulated subscription status
         return {
           tier: simulatorState.subscription.tier,
@@ -146,6 +172,97 @@ export function useSubscription() {
     },
   });
 
+  // Purchase a package
+  const purchasePackage = useMutation({
+    mutationFn: async (pkg: PurchasesPackage) => {
+      if (!user) throw new Error('User not authenticated');
+
+      Logger.info('useSubscription: Starting purchase', {
+        action: 'purchase_package',
+        userId: user.id,
+        metadata: { packageId: pkg.identifier },
+      });
+
+      const { customerInfo, userCancelled } = await RevenueCat.purchasePackage(pkg);
+
+      if (userCancelled) {
+        throw new Error('User cancelled purchase');
+      }
+
+      // Sync subscription tier with Supabase
+      const tier = RevenueCat.getSubscriptionTierFromCustomerInfo(customerInfo);
+      await syncSubscriptionTierToSupabase(user.id, tier);
+
+      return { customerInfo, tier };
+    },
+    onSuccess: (data) => {
+      Logger.info('useSubscription: Purchase successful', {
+        action: 'purchase_success',
+        userId: user?.id,
+        metadata: { tier: data.tier },
+      });
+
+      // Invalidate subscription query to refetch
+      queryClient.invalidateQueries({ queryKey: ['subscription', user?.id] });
+    },
+    onError: (error: any) => {
+      if (error.message !== 'User cancelled purchase') {
+        Logger.error('useSubscription: Purchase failed', error, {
+          action: 'purchase_error',
+          userId: user?.id,
+        });
+      }
+    },
+  });
+
+  // Restore purchases
+  const restorePurchases = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error('User not authenticated');
+
+      Logger.info('useSubscription: Restoring purchases', {
+        action: 'restore_purchases',
+        userId: user.id,
+      });
+
+      const customerInfo = await RevenueCat.restorePurchases();
+
+      // Sync subscription tier with Supabase
+      const tier = RevenueCat.getSubscriptionTierFromCustomerInfo(customerInfo);
+      await syncSubscriptionTierToSupabase(user.id, tier);
+
+      return { customerInfo, tier };
+    },
+    onSuccess: (data) => {
+      Logger.info('useSubscription: Purchases restored', {
+        action: 'restore_success',
+        userId: user?.id,
+        metadata: { tier: data.tier },
+      });
+
+      // Invalidate subscription query to refetch
+      queryClient.invalidateQueries({ queryKey: ['subscription', user?.id] });
+    },
+    onError: (error) => {
+      Logger.error('useSubscription: Restore failed', error as Error, {
+        action: 'restore_error',
+        userId: user?.id,
+      });
+    },
+  });
+
+  // Get available offerings
+  const {
+    data: offerings,
+    isLoading: offeringsLoading,
+    error: offeringsError,
+  } = useQuery({
+    queryKey: ['revenuecat_offerings'],
+    queryFn: RevenueCat.getOfferings,
+    enabled: isRevenueCatReady,
+    staleTime: 1000 * 60 * 10, // 10 minutes
+  });
+
   return {
     subscriptionStatus,
     featureAccess,
@@ -153,7 +270,48 @@ export function useSubscription() {
     error,
     refetch,
     incrementSessionCount: incrementSessionCount.mutate,
+    // RevenueCat functions
+    purchasePackage: purchasePackage.mutate,
+    isPurchasing: purchasePackage.isPending,
+    restorePurchases: restorePurchases.mutate,
+    isRestoring: restorePurchases.isPending,
+    offerings,
+    offeringsLoading,
+    offeringsError,
+    isRevenueCatReady,
   };
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Sync subscription tier from RevenueCat to Supabase
+ */
+async function syncSubscriptionTierToSupabase(
+  userId: string,
+  tier: SubscriptionTier
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ current_tier: tier })
+      .eq('id', userId);
+
+    if (error) throw error;
+
+    Logger.info('useSubscription: Synced tier to Supabase', {
+      action: 'sync_tier',
+      metadata: { userId, tier },
+    });
+  } catch (error) {
+    Logger.error('useSubscription: Failed to sync tier to Supabase', error as Error, {
+      action: 'sync_tier_error',
+      metadata: { userId, tier },
+    });
+    // Don't throw - subscription still active in RevenueCat
+  }
 }
 
 // ============================================================================

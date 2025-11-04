@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { useState, useMemo, useEffect, memo } from 'react';
-import { ChevronLeft, ChevronRight, Play, CheckCircle2, Loader2 } from 'lucide-react-native';
-import { Round, Player, Match, MexicanoAlgorithm } from '@courtster/shared';
+import { ChevronLeft, ChevronRight, Play, CheckCircle2, Loader2, RefreshCw } from 'lucide-react-native';
+import { Round, Player, Match, MexicanoAlgorithm, ParallelRound } from '@courtster/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../config/supabase';
 import { offlineQueue } from '../../utils/offlineQueue';
@@ -9,6 +9,8 @@ import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { retryScoreUpdate, retryDbOperation } from '../../utils/retryWithBackoff';
 import Toast from 'react-native-toast-message';
 import { validateMatchScore } from '../../utils/typeGuards';
+import { CourtCard } from './CourtCard';
+import { Logger } from '../../utils/logger';
 
 interface RoundsTabProps {
   currentRound: Round | undefined;
@@ -49,6 +51,9 @@ export const RoundsTab = memo(function RoundsTab({
   const [localScores, setLocalScores] = useState<{ [key: string]: { team1?: string; team2?: string } }>({});
   const [savedScores, setSavedScores] = useState<{ [key: string]: { team1Score?: number; team2Score?: number } }>({});
 
+  // Parallel mode: Track current round index per court
+  const [courtRoundIndices, setCourtRoundIndices] = useState<{ [courtNumber: number]: number }>({});
+
   // ISSUE #6 FIX: Maximum entries to keep in state (prevents unbounded growth)
   const MAX_STATE_ENTRIES = 50;
 
@@ -80,6 +85,79 @@ export const RoundsTab = memo(function RoundsTab({
         return { ...rest, [key]: value } as T;
       }
       return { ...prev, [key]: value };
+    });
+  };
+
+  // Check if session is in parallel mode
+  const isParallelMode = session?.mode === 'parallel';
+
+  // Parallel mode: Get current round for a specific court
+  const getCourtRound = (courtNumber: number): { round: ParallelRound | undefined; roundIndex: number } => {
+    const roundIndex = courtRoundIndices[courtNumber] ?? currentRoundIndex;
+    const round = allRounds[roundIndex] as ParallelRound | undefined;
+    return { round, roundIndex };
+  };
+
+  // Parallel mode: Handle round navigation for a specific court
+  const handleCourtRoundChange = (courtNumber: number, direction: 'next' | 'prev') => {
+    setCourtRoundIndices(prev => {
+      const currentIndex = prev[courtNumber] ?? currentRoundIndex;
+      const newIndex = direction === 'next'
+        ? Math.min(currentIndex + 1, allRounds.length - 1)
+        : Math.max(currentIndex - 1, 0);
+      return { ...prev, [courtNumber]: newIndex };
+    });
+  };
+
+  // Parallel mode: Handle score change for a specific court
+  const handleCourtScoreChange = (courtNumber: number, team1Score: string, team2Score: string) => {
+    const { round, roundIndex } = getCourtRound(courtNumber);
+    if (!round) return;
+
+    // Find match for this court in this round
+    const matchIndex = round.matches.findIndex(m => m.court === courtNumber);
+    if (matchIndex === -1) return;
+
+    const key = `court-${courtNumber}-round-${roundIndex}-match-${matchIndex}`;
+    setLocalScores(prev => ({
+      ...prev,
+      [key]: { team1: team1Score, team2: team2Score }
+    }));
+  };
+
+  // Parallel mode: Handle score blur (save) for a specific court
+  const handleCourtScoreBlur = (courtNumber: number) => {
+    const { round, roundIndex } = getCourtRound(courtNumber);
+    if (!round) return;
+
+    // Find match for this court in this round
+    const matchIndex = round.matches.findIndex(m => m.court === courtNumber);
+    if (matchIndex === -1) return;
+
+    const key = `court-${courtNumber}-round-${roundIndex}-match-${matchIndex}`;
+    const scores = localScores[key];
+    if (!scores?.team1 || !scores?.team2) return;
+
+    const team1Score = parseInt(scores.team1);
+    const team2Score = parseInt(scores.team2);
+
+    if (isNaN(team1Score) || isNaN(team2Score)) return;
+
+    // Validate scores
+    if (!areScoresValid(team1Score, team2Score)) {
+      Toast.show({
+        type: 'error',
+        text1: 'Invalid Score',
+        text2: 'Please enter valid scores for this match',
+      });
+      return;
+    }
+
+    // Save scores
+    updateScoreMutation.mutate({
+      matchIndex,
+      team1Score,
+      team2Score,
     });
   };
 
@@ -121,9 +199,20 @@ export const RoundsTab = memo(function RoundsTab({
         });
       }
 
-      return { newRound, roundIndex: updatedRounds.length - 1 };
+      return { newRound, roundIndex: updatedRounds.length - 1, nextRoundNumber };
     },
     onSuccess: (data) => {
+      Logger.info('Round generated successfully', {
+        action: 'generateRound',
+        sessionId,
+        metadata: {
+          roundNumber: data.nextRoundNumber,
+          totalRounds: allRounds.length + 1,
+          matchCount: data.newRound.matches.length,
+          isOffline: !isOnline,
+        },
+      });
+
       queryClient.invalidateQueries({ queryKey: ['session', sessionId] });
       queryClient.invalidateQueries({ queryKey: ['players', sessionId] });
       queryClient.invalidateQueries({ queryKey: ['eventHistory', sessionId] });
@@ -166,21 +255,33 @@ export const RoundsTab = memo(function RoundsTab({
         if (!team1HasScore || !team2HasScore) return false;
 
         // Validate based on scoring mode
-        if (session.scoring_mode === "first_to" || session.scoring_mode === "first_to_games") {
-          // For "first to X" modes, one team must reach exactly X, the other must be less than X
+        if (session.scoring_mode === "first_to") {
+          // First to X games mode: one team must reach games_to_win
           const maxScore = Math.max(team1Score, team2Score);
           const minScore = Math.min(team1Score, team2Score);
-          return maxScore === session.points_per_match && minScore < session.points_per_match;
+          const targetGames = session.games_to_win || session.points_per_match;
+          return maxScore === targetGames && minScore < targetGames;
+        } else if (session.scoring_mode === "total_games") {
+          // Total games mode: scores must sum to total_games
+          const totalGames = session.total_games || session.points_per_match;
+          return team1Score + team2Score === totalGames;
         } else {
-          // For "points" and "total_games" modes, scores must sum to points_per_match
+          // Points mode: scores must sum to points_per_match
           return team1Score + team2Score === session.points_per_match;
         }
       });
 
       if (!allScored) {
-        const errorMessage = (session.scoring_mode === "first_to" || session.scoring_mode === "first_to_games")
-          ? `Please enter valid scores for all matches. One team must reach exactly ${session.points_per_match} ${session.scoring_mode === "first_to" ? "points" : "games"}.`
-          : `Please enter valid scores for all matches. Each match must total ${session.points_per_match} ${session.scoring_mode === "total_games" ? "games" : "points"}.`;
+        let errorMessage = '';
+        if (session.scoring_mode === "first_to") {
+          const targetGames = session.games_to_win || session.points_per_match;
+          errorMessage = `Please enter valid scores for all matches. One team must reach exactly ${targetGames} games.`;
+        } else if (session.scoring_mode === "total_games") {
+          const totalGames = session.total_games || session.points_per_match;
+          errorMessage = `Please enter valid scores for all matches. Each match must total ${totalGames} games.`;
+        } else {
+          errorMessage = `Please enter valid scores for all matches. Each match must total ${session.points_per_match} points.`;
+        }
         Toast.show({
           type: 'error',
           text1: 'Incomplete Round',
@@ -246,6 +347,104 @@ export const RoundsTab = memo(function RoundsTab({
   // State to track which matches are currently saving
   const [savingMatches, setSavingMatches] = useState<Set<number>>(new Set());
 
+  // Helper function to validate score input and determine border color
+  const getScoreBorderColor = (
+    matchIndex: number,
+    team: 'team1' | 'team2',
+    currentValue: string | undefined,
+    savedScore: number | undefined,
+    matchScore: number | undefined,
+    otherTeamValue: string | undefined,
+    otherTeamSavedScore: number | undefined,
+    otherTeamMatchScore: number | undefined
+  ): string => {
+    // If no local input, show green if saved, gray otherwise
+    if (currentValue === undefined) {
+      return (savedScore !== undefined || matchScore !== undefined) ? '#10B981' : '#E5E7EB';
+    }
+
+    // Parse current input
+    const parsedValue = parseInt(currentValue);
+    if (isNaN(parsedValue) || currentValue === '' || parsedValue < 0) {
+      return '#EF4444'; // Red for invalid input
+    }
+
+    // Parse other team's score
+    let otherScore: number | undefined;
+    if (otherTeamValue) {
+      const parsed = parseInt(otherTeamValue);
+      if (!isNaN(parsed) && parsed >= 0) {
+        otherScore = parsed;
+      }
+    }
+    if (otherScore === undefined) {
+      otherScore = otherTeamSavedScore ?? otherTeamMatchScore;
+    }
+
+    // Validate based on scoring mode
+    if (session.scoring_mode === 'first_to') {
+      const targetGames = session.games_to_win || session.points_per_match || 0;
+      // Score cannot exceed target games
+      if (parsedValue > targetGames) {
+        return '#EF4444'; // Red - exceeds max
+      }
+      // If both scores present, validate the combination
+      if (otherScore !== undefined) {
+        const maxScore = Math.max(parsedValue, otherScore);
+        const minScore = Math.min(parsedValue, otherScore);
+        // One must be exactly target, other must be less
+        if (maxScore !== targetGames || minScore >= targetGames) {
+          return '#EF4444'; // Red - invalid combination
+        }
+      }
+    } else if (session.scoring_mode === 'total_games') {
+      const totalGames = session.total_games || session.points_per_match || 0;
+      // Score cannot exceed total games
+      if (parsedValue > totalGames) {
+        return '#EF4444'; // Red - exceeds max
+      }
+      // If both scores present, validate sum
+      if (otherScore !== undefined) {
+        if (parsedValue + otherScore !== totalGames) {
+          return '#EF4444'; // Red - doesn't sum to total
+        }
+      }
+    } else {
+      // Points mode
+      const maxPoints = session.points_per_match || 0;
+      // Score cannot exceed max points
+      if (parsedValue > maxPoints) {
+        return '#EF4444'; // Red - exceeds max
+      }
+      // If both scores present, validate sum
+      if (otherScore !== undefined) {
+        if (parsedValue + otherScore !== maxPoints) {
+          return '#EF4444'; // Red - doesn't sum to total
+        }
+      }
+    }
+
+    // Valid input
+    return '#3B82F6'; // Blue for valid but unsaved
+  };
+
+  // Helper function to validate if scores are valid for saving
+  const areScoresValid = (team1: number, team2: number): boolean => {
+    if (session.scoring_mode === 'first_to') {
+      const targetGames = session.games_to_win || session.points_per_match || 0;
+      const maxScore = Math.max(team1, team2);
+      const minScore = Math.min(team1, team2);
+      return maxScore === targetGames && minScore < targetGames;
+    } else if (session.scoring_mode === 'total_games') {
+      const totalGames = session.total_games || session.points_per_match || 0;
+      return team1 + team2 === totalGames;
+    } else {
+      // Points mode
+      const maxPoints = session.points_per_match || 0;
+      return team1 + team2 === maxPoints;
+    }
+  };
+
   // ISSUE #3 FIX: Update score mutation with pessimistic locking and retry
   const updateScoreMutation = useMutation({
     mutationFn: async ({
@@ -286,7 +485,11 @@ export const RoundsTab = memo(function RoundsTab({
           });
 
           if (error) {
-            console.error('[Score Save Error]:', error);
+            Logger.error('Score save failed', error as Error, {
+              action: 'saveScore',
+              sessionId,
+              metadata: { matchId: variables.matchId }
+            });
             throw new Error(`Failed to save score: ${error.message}`);
           }
 
@@ -306,7 +509,10 @@ export const RoundsTab = memo(function RoundsTab({
         try {
           await updatePlayerStats(players, allRounds);
         } catch (statsError) {
-          console.error('[Player Stats Error]:', statsError);
+          Logger.error('Player stats update failed', statsError as Error, {
+            action: 'updatePlayerStats',
+            sessionId
+          });
         }
 
         // ISSUE #3 FIX: Log event with error handling (non-blocking)
@@ -317,7 +523,10 @@ export const RoundsTab = memo(function RoundsTab({
             description,
           });
         } catch (eventError) {
-          console.error('[Event Log Error]:', eventError);
+          Logger.error('Event log failed', eventError as Error, {
+            action: 'logScoreEvent',
+            sessionId
+          });
         }
 
         return result;
@@ -339,7 +548,19 @@ export const RoundsTab = memo(function RoundsTab({
       // Add to saving set to show spinner
       setSavingMatches(prev => new Set(prev).add(matchIndex));
     },
-    onSuccess: ({ matchIndex }) => {
+    onSuccess: ({ matchIndex, team1Score, team2Score }) => {
+      Logger.info('Score updated successfully', {
+        action: 'updateScore',
+        sessionId,
+        metadata: {
+          roundNumber: currentRoundIndex + 1,
+          matchIndex,
+          team1Score,
+          team2Score,
+          isOffline: !isOnline
+        }
+      });
+
       // Remove from saving set
       setSavingMatches(prev => {
         const updated = new Set(prev);
@@ -657,8 +878,48 @@ export const RoundsTab = memo(function RoundsTab({
               </View>
             )}
 
-            {/* Matches */}
-            {!generateRoundMutation.isPending && currentRound?.matches?.length > 0 ? (
+            {/* Parallel Mode: Render court cards */}
+            {!generateRoundMutation.isPending && isParallelMode && currentRound && 'courtAssignments' in currentRound ? (
+              <>
+                {(currentRound as ParallelRound).courtAssignments.map((courtAssignment) => {
+                  const { round: courtRound, roundIndex: courtRoundIndex } = getCourtRound(courtAssignment.courtNumber);
+                  if (!courtRound || !('courtAssignments' in courtRound)) return null;
+
+                  const parallelRound = courtRound as ParallelRound;
+
+                  // Find match for this court in the court's current round
+                  const match = parallelRound.matches.find(m => m.court === courtAssignment.courtNumber);
+
+                  // Get sitting players for the court's current round
+                  const sittingPlayers = parallelRound.sittingPlayers || [];
+
+                  // Get local scores for this court's match
+                  const matchIndex = parallelRound.matches.findIndex(m => m.court === courtAssignment.courtNumber);
+                  const key = `court-${courtAssignment.courtNumber}-round-${courtRoundIndex}-match-${matchIndex}`;
+                  const courtLocalScores = localScores[key];
+
+                  return (
+                    <CourtCard
+                      key={courtAssignment.courtNumber}
+                      courtNumber={courtAssignment.courtNumber}
+                      courtAssignment={courtAssignment}
+                      match={match}
+                      currentRound={courtRoundIndex + 1}
+                      totalRounds={allRounds.length}
+                      sittingPlayers={sittingPlayers}
+                      onRoundChange={handleCourtRoundChange}
+                      onScoreChange={handleCourtScoreChange}
+                      onScoreBlur={handleCourtScoreBlur}
+                      localScores={courtLocalScores}
+                      isSaving={savingMatches.has(matchIndex)}
+                    />
+                  );
+                })}
+              </>
+            ) : null}
+
+            {/* Sequential Mode: Matches */}
+            {!generateRoundMutation.isPending && !isParallelMode && currentRound?.matches?.length > 0 ? (
               <>
                 {currentRound.matches.map((match, index) => {
                   // Safety checks
@@ -727,10 +988,16 @@ export const RoundsTab = memo(function RoundsTab({
                           height: 40,
                           backgroundColor: '#F9FAFB',
                           borderWidth: 1,
-                          borderColor: (
-                            (savedScores[`match-${index}`]?.team1Score !== undefined || match.team1Score !== undefined) &&
-                            localScores[`match-${index}`]?.team1 === undefined
-                          ) ? '#10B981' : '#E5E7EB',
+                          borderColor: getScoreBorderColor(
+                            index,
+                            'team1',
+                            localScores[`match-${index}`]?.team1,
+                            savedScores[`match-${index}`]?.team1Score,
+                            match.team1Score,
+                            localScores[`match-${index}`]?.team2,
+                            savedScores[`match-${index}`]?.team2Score,
+                            match.team2Score
+                          ),
                           borderRadius: 12,
                           textAlign: 'center',
                           fontFamily: 'Inter',
@@ -787,17 +1054,36 @@ export const RoundsTab = memo(function RoundsTab({
                             team2Score = savedScores[`match-${index}`]?.team2Score ?? match.team2Score;
                           }
 
+                          // Validate team1 score doesn't exceed maximum BEFORE auto-fill
+                          const maxAllowed = session.scoring_mode === 'first_to'
+                            ? (session.games_to_win || session.points_per_match || 0)
+                            : session.scoring_mode === 'total_games'
+                              ? (session.total_games || session.points_per_match || 0)
+                              : (session.points_per_match || 0);
+
+                          if (team1Score > maxAllowed) {
+                            // Invalid - exceeds maximum, keep in local state only
+                            setLocalScores(prev => ({
+                              ...prev,
+                              [`match-${index}`]: {
+                                ...prev[`match-${index}`],
+                                team1: localValue
+                              }
+                            }));
+                            return;
+                          }
+
                           const shouldAutoFill = (
                             team2Score === undefined &&
-                            session.scoring_mode !== 'first_to' &&
-                            session.scoring_mode !== 'first_to_games'
+                            session.scoring_mode !== 'first_to'
                           );
 
                           if (shouldAutoFill) {
-                            const maxPoints = session.points_per_match || 0;
-                            if (team1Score <= maxPoints) {
-                              team2Score = Math.max(0, maxPoints - team1Score);
-                            }
+                            // Auto-fill for 'points' and 'total_games' modes
+                            const maxPoints = session.scoring_mode === 'total_games'
+                              ? (session.total_games || session.points_per_match || 0)
+                              : (session.points_per_match || 0);
+                            team2Score = Math.max(0, maxPoints - team1Score);
                             // For auto-filled scores, only update local state, don't save yet
                             // This allows user to edit the auto-filled value before saving
                             setLocalScores(prev => ({
@@ -808,8 +1094,21 @@ export const RoundsTab = memo(function RoundsTab({
                               }
                             }));
                           } else {
-                            // For "first to X" modes and other modes, save immediately when BOTH scores are present
+                            // Save immediately when BOTH scores are present and valid
                             if (team2Score !== undefined) {
+                              // Validate before saving
+                              if (!areScoresValid(team1Score, team2Score)) {
+                                // Keep in local state if invalid - don't save
+                                setLocalScores(prev => ({
+                                  ...prev,
+                                  [`match-${index}`]: {
+                                    ...prev[`match-${index}`],
+                                    team1: localValue
+                                  }
+                                }));
+                                return;
+                              }
+
                               setSavedScores(prev => ({
                                 ...prev,
                                 [`match-${index}`]: {
@@ -850,10 +1149,16 @@ export const RoundsTab = memo(function RoundsTab({
                           height: 40,
                           backgroundColor: '#F9FAFB',
                           borderWidth: 1,
-                          borderColor: (
-                            (savedScores[`match-${index}`]?.team2Score !== undefined || match.team2Score !== undefined) &&
-                            localScores[`match-${index}`]?.team2 === undefined
-                          ) ? '#10B981' : '#E5E7EB',
+                          borderColor: getScoreBorderColor(
+                            index,
+                            'team2',
+                            localScores[`match-${index}`]?.team2,
+                            savedScores[`match-${index}`]?.team2Score,
+                            match.team2Score,
+                            localScores[`match-${index}`]?.team1,
+                            savedScores[`match-${index}`]?.team1Score,
+                            match.team1Score
+                          ),
                           borderRadius: 12,
                           textAlign: 'center',
                           fontFamily: 'Inter',
@@ -910,17 +1215,36 @@ export const RoundsTab = memo(function RoundsTab({
                             team1Score = savedScores[`match-${index}`]?.team1Score ?? match.team1Score;
                           }
 
+                          // Validate team2 score doesn't exceed maximum BEFORE auto-fill
+                          const maxAllowed = session.scoring_mode === 'first_to'
+                            ? (session.games_to_win || session.points_per_match || 0)
+                            : session.scoring_mode === 'total_games'
+                              ? (session.total_games || session.points_per_match || 0)
+                              : (session.points_per_match || 0);
+
+                          if (team2Score > maxAllowed) {
+                            // Invalid - exceeds maximum, keep in local state only
+                            setLocalScores(prev => ({
+                              ...prev,
+                              [`match-${index}`]: {
+                                ...prev[`match-${index}`],
+                                team2: localValue
+                              }
+                            }));
+                            return;
+                          }
+
                           const shouldAutoFill = (
                             team1Score === undefined &&
-                            session.scoring_mode !== 'first_to' &&
-                            session.scoring_mode !== 'first_to_games'
+                            session.scoring_mode !== 'first_to'
                           );
 
                           if (shouldAutoFill) {
-                            const maxPoints = session.points_per_match || 0;
-                            if (team2Score <= maxPoints) {
-                              team1Score = Math.max(0, maxPoints - team2Score);
-                            }
+                            // Auto-fill for 'points' and 'total_games' modes
+                            const maxPoints = session.scoring_mode === 'total_games'
+                              ? (session.total_games || session.points_per_match || 0)
+                              : (session.points_per_match || 0);
+                            team1Score = Math.max(0, maxPoints - team2Score);
                             // For auto-filled scores, only update local state, don't save yet
                             // This allows user to edit the auto-filled value before saving
                             setLocalScores(prev => ({
@@ -931,8 +1255,21 @@ export const RoundsTab = memo(function RoundsTab({
                               }
                             }));
                           } else {
-                            // For "first to X" modes and other modes, save immediately when BOTH scores are present
+                            // Save immediately when BOTH scores are present and valid
                             if (team1Score !== undefined) {
+                              // Validate before saving
+                              if (!areScoresValid(team1Score, team2Score)) {
+                                // Keep in local state if invalid - don't save
+                                setLocalScores(prev => ({
+                                  ...prev,
+                                  [`match-${index}`]: {
+                                    ...prev[`match-${index}`],
+                                    team2: localValue
+                                  }
+                                }));
+                                return;
+                              }
+
                               setSavedScores(prev => ({
                                 ...prev,
                                 [`match-${index}`]: {
@@ -1062,10 +1399,16 @@ export const RoundsTab = memo(function RoundsTab({
                     height: 56,
                     backgroundColor: '#FFFFFF',
                     borderWidth: 2,
-                    borderColor: (
-                      (savedScores[`match-${index}`]?.team1Score !== undefined || match.team1Score !== undefined) &&
-                      localScores[`match-${index}`]?.team1 === undefined
-                    ) ? '#10B981' : '#E5E7EB',
+                    borderColor: getScoreBorderColor(
+                      index,
+                      'team1',
+                      localScores[`match-${index}`]?.team1,
+                      savedScores[`match-${index}`]?.team1Score,
+                      match.team1Score,
+                      localScores[`match-${index}`]?.team2,
+                      savedScores[`match-${index}`]?.team2Score,
+                      match.team2Score
+                    ),
                     borderRadius: 16,
                     textAlign: 'center',
                     fontFamily: 'Inter',
@@ -1136,17 +1479,36 @@ export const RoundsTab = memo(function RoundsTab({
                       team2Score = savedScores[`match-${index}`]?.team2Score ?? match.team2Score;
                     }
 
+                    // Validate team1 score doesn't exceed maximum BEFORE auto-fill
+                    const maxAllowed = session.scoring_mode === 'first_to'
+                      ? (session.games_to_win || session.points_per_match || 0)
+                      : session.scoring_mode === 'total_games'
+                        ? (session.total_games || session.points_per_match || 0)
+                        : (session.points_per_match || 0);
+
+                    if (team1Score > maxAllowed) {
+                      // Invalid - exceeds maximum, keep in local state only
+                      setLocalScores(prev => ({
+                        ...prev,
+                        [`match-${index}`]: {
+                          ...prev[`match-${index}`],
+                          team1: localValue
+                        }
+                      }));
+                      return;
+                    }
+
                     const shouldAutoFill = (
                       team2Score === undefined &&
-                      session.scoring_mode !== 'first_to' &&
-                      session.scoring_mode !== 'first_to_games'
+                      session.scoring_mode !== 'first_to'
                     );
 
                     if (shouldAutoFill) {
-                      const maxPoints = session.points_per_match || 0;
-                      if (team1Score <= maxPoints) {
-                        team2Score = Math.max(0, maxPoints - team1Score);
-                      }
+                      // Auto-fill for 'points' and 'total_games' modes
+                      const maxPoints = session.scoring_mode === 'total_games'
+                        ? (session.total_games || session.points_per_match || 0)
+                        : (session.points_per_match || 0);
+                      team2Score = Math.max(0, maxPoints - team1Score);
                       // For auto-filled scores, only update local state, don't save yet
                       // This allows user to edit the auto-filled value before saving
                       setLocalScores(prev => ({
@@ -1204,10 +1566,16 @@ export const RoundsTab = memo(function RoundsTab({
                     height: 56,
                     backgroundColor: '#FFFFFF',
                     borderWidth: 2,
-                    borderColor: (
-                      (savedScores[`match-${index}`]?.team2Score !== undefined || match.team2Score !== undefined) &&
-                      localScores[`match-${index}`]?.team2 === undefined
-                    ) ? '#10B981' : '#E5E7EB',
+                    borderColor: getScoreBorderColor(
+                      index,
+                      'team2',
+                      localScores[`match-${index}`]?.team2,
+                      savedScores[`match-${index}`]?.team2Score,
+                      match.team2Score,
+                      localScores[`match-${index}`]?.team1,
+                      savedScores[`match-${index}`]?.team1Score,
+                      match.team1Score
+                    ),
                     borderRadius: 16,
                     textAlign: 'center',
                     fontFamily: 'Inter',
@@ -1278,17 +1646,36 @@ export const RoundsTab = memo(function RoundsTab({
                       team1Score = savedScores[`match-${index}`]?.team1Score ?? match.team1Score;
                     }
 
+                    // Validate team2 score doesn't exceed maximum BEFORE auto-fill
+                    const maxAllowed = session.scoring_mode === 'first_to'
+                      ? (session.games_to_win || session.points_per_match || 0)
+                      : session.scoring_mode === 'total_games'
+                        ? (session.total_games || session.points_per_match || 0)
+                        : (session.points_per_match || 0);
+
+                    if (team2Score > maxAllowed) {
+                      // Invalid - exceeds maximum, keep in local state only
+                      setLocalScores(prev => ({
+                        ...prev,
+                        [`match-${index}`]: {
+                          ...prev[`match-${index}`],
+                          team2: localValue
+                        }
+                      }));
+                      return;
+                    }
+
                     const shouldAutoFill = (
                       team1Score === undefined &&
-                      session.scoring_mode !== 'first_to' &&
-                      session.scoring_mode !== 'first_to_games'
+                      session.scoring_mode !== 'first_to'
                     );
 
                     if (shouldAutoFill) {
-                      const maxPoints = session.points_per_match || 0;
-                      if (team2Score <= maxPoints) {
-                        team1Score = Math.max(0, maxPoints - team2Score);
-                      }
+                      // Auto-fill for 'points' and 'total_games' modes
+                      const maxPoints = session.scoring_mode === 'total_games'
+                        ? (session.total_games || session.points_per_match || 0)
+                        : (session.points_per_match || 0);
+                      team1Score = Math.max(0, maxPoints - team2Score);
                       // For auto-filled scores, only update local state, don't save yet
                       // This allows user to edit the auto-filled value before saving
                       setLocalScores(prev => ({
@@ -1299,8 +1686,21 @@ export const RoundsTab = memo(function RoundsTab({
                         }
                       }));
                     } else {
-                      // For "first to X" modes, don't auto-fill - only save when BOTH scores are explicitly entered
+                      // Save immediately when BOTH scores are present and valid
                       if (team1Score !== undefined) {
+                        // Validate before saving
+                        if (!areScoresValid(team1Score, team2Score)) {
+                          // Keep in local state if invalid - don't save
+                          setLocalScores(prev => ({
+                            ...prev,
+                            [`match-${index}`]: {
+                              ...prev[`match-${index}`],
+                              team2: localValue
+                            }
+                          }));
+                          return;
+                        }
+
                         // Update local saved scores immediately for instant UI feedback
                         setSavedScores(prev => ({
                           ...prev,
@@ -1354,8 +1754,8 @@ export const RoundsTab = memo(function RoundsTab({
               </View>
             )}
 
-        {/* Sitting Players */}
-        {currentRound.sittingPlayers.length > 0 && (
+        {/* Sitting Players - Only show in sequential mode (parallel mode shows per court) */}
+        {!isParallelMode && currentRound.sittingPlayers.length > 0 && (
           <View style={{
             backgroundColor: '#FFFFFF',
             borderRadius: 16,

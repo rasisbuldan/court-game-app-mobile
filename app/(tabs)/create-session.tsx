@@ -25,18 +25,20 @@ import {
 import Toast from 'react-native-toast-message';
 import { useSessionForm } from '../../hooks/useSessionForm';
 import { usePlayerForm } from '../../hooks/usePlayerForm';
+import { validateSession, getValidationErrors, getValidationWarnings, groupValidationsByCategory } from '../../utils/sessionValidation';
 import { GameFormatSelector } from '../../components/create/GameFormatSelector';
 import { ScoringModeSelector } from '../../components/create/ScoringModeSelector';
+import { PresetSelector } from '../../components/create/PresetSelector';
 import { PlayerManager } from '../../components/create/PlayerManager';
 import { DateTimePickerModal } from '../../components/create/DateTimePickerModal';
 import ClubSelector from '../../components/clubs/ClubSelector';
 import { CourtSelector } from '../../components/create/CourtSelector';
-import { PresetSelector } from '../../components/create/PresetSelector';
 import { DurationSelector } from '../../components/create/DurationSelector';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../config/supabase';
 import { importPlayersFromReclub, isValidReclubUrl } from '../../services/reclubImportService';
 import { useSubscription } from '../../hooks/useSubscription';
+import { Logger } from '../../utils/logger';
 
 // STATE MACHINE: Session creation states
 type SessionCreationState =
@@ -307,106 +309,16 @@ export default function CreateSessionScreen() {
     }
   };
 
-  const validateForm = (): { isValid: boolean; errors: string[] } => {
-    const errors: string[] = [];
+  const validateForm = (): { isValid: boolean; errors: string[]; warnings: string[] } => {
+    const validationResults = validateSession(formData, players);
+    const errorResults = validationResults.filter(r => r.severity === 'error');
+    const warningResults = validationResults.filter(r => r.severity === 'warning');
 
-    // Session name
-    if (!formData.name.trim()) {
-      errors.push('Session name is required');
-    } else if (formData.name.trim().length < 3) {
-      errors.push('Session name must be at least 3 characters');
-    } else if (formData.name.trim().length > 60) {
-      errors.push('Session name must be at most 60 characters');
-    }
-
-    // Date
-    if (!formData.game_date) {
-      errors.push('Game date is required');
-    } else if (formData.game_date && formData.game_time) {
-      // Validate date + time is in the future
-      try {
-        const [year, month, day] = formData.game_date.split('-').map(Number);
-        const [hours, minutes] = formData.game_time.split(':').map(Number);
-        const selectedDateTime = new Date(year, month - 1, day, hours, minutes);
-        const now = new Date();
-
-        if (selectedDateTime < now) {
-          errors.push('Session date and time must be in the future');
-        }
-      } catch (e) {
-        // Invalid date format - will be caught by other validation
-      }
-    }
-
-    // Courts
-    if (formData.courts < 1 || formData.courts > 10) {
-      errors.push('Courts must be between 1 and 10');
-    }
-
-    // Parallel mode constraints
-    if (formData.mode === 'parallel') {
-      if (formData.courts < 2 || formData.courts > 4) {
-        errors.push('Parallel mode requires 2-4 courts');
-      }
-    }
-
-    // Points
-    if (formData.points_per_match < 1 || formData.points_per_match > 100) {
-      errors.push('Points must be between 1 and 100');
-    }
-
-    // Duration
-    if (formData.duration_hours < 0.5 || formData.duration_hours > 24) {
-      errors.push('Duration must be between 0.5 and 24 hours');
-    }
-
-    // Players
-    if (players.length < 4) {
-      errors.push('At least 4 players are required');
-    }
-
-    // Mixed mexicano validation
-    if (formData.type === 'mixed_mexicano') {
-      const maleCount = players.filter((p) => p.gender === 'male').length;
-      const femaleCount = players.filter((p) => p.gender === 'female').length;
-
-      if (maleCount !== femaleCount) {
-        errors.push('Mixed Mexicano requires equal number of male and female players');
-      }
-    }
-
-    // Fixed partner validation
-    if (formData.type === 'fixed_partner') {
-      if (players.length % 2 !== 0) {
-        errors.push('Fixed Partner mode requires an even number of players');
-      }
-
-      const playersWithoutPartners = players.filter((p) => !p.partnerId);
-      if (playersWithoutPartners.length > 0) {
-        errors.push('All players must have partners in Fixed Partner mode');
-      }
-
-      // Check mutual partnerships
-      for (const player of players) {
-        if (player.partnerId) {
-          const partner = players.find((p) => p.id === player.partnerId);
-          if (!partner || partner.partnerId !== player.id) {
-            errors.push('All partnerships must be mutual');
-            break;
-          }
-        }
-      }
-    }
-
-    // Parallel mode player count
-    if (formData.mode === 'parallel') {
-      const minPlayers = formData.courts * 4;
-      if (players.length < minPlayers) {
-        errors.push(`Parallel mode with ${formData.courts} courts requires at least ${minPlayers} players`);
-      }
-    }
-
-    return { isValid: errors.length === 0, errors };
+    return {
+      isValid: errorResults.length === 0,
+      errors: errorResults.map(r => r.message),
+      warnings: warningResults.map(r => r.message),
+    };
   };
 
   const handleSubmit = async () => {
@@ -433,7 +345,7 @@ export default function CreateSessionScreen() {
       return;
     }
 
-    const { isValid, errors } = validateForm();
+    const { isValid, errors, warnings } = validateForm();
 
     if (!isValid) {
       setCreationState('error');
@@ -460,9 +372,24 @@ export default function CreateSessionScreen() {
     // Track session ID for cleanup
     let createdSessionId: string | null = null;
 
+    // Performance tracking
+    const startTime = Date.now();
+
     try {
       // STATE MACHINE: Creating session
       setCreationState('creating_session');
+
+      Logger.info('Session creation started', {
+        action: 'createSession',
+        userId: user.id,
+        metadata: {
+          playerCount: players.length,
+          courts: formData.courts,
+          mode: formData.mode,
+          sport: formData.sport,
+          isOffline
+        }
+      });
 
       // ISSUE #1 FIX: Create session with improved error handling
       const { data: sessionData, error: sessionError } = await supabase
@@ -499,6 +426,12 @@ export default function CreateSessionScreen() {
       if (!sessionData) {
         throw new Error('Session created but no data returned');
       }
+
+      Logger.info('Session record created successfully', {
+        action: 'createSession',
+        userId: user.id,
+        sessionId: sessionData.id
+      });
 
       // Store session ID for cleanup if players fail
       createdSessionId = sessionData.id;
@@ -559,10 +492,10 @@ export default function CreateSessionScreen() {
 
           if (deleteError) {
             // Log but don't throw - we already have a primary error
-            console.error('Failed to rollback session:', deleteError);
+            Logger.error('Failed to rollback session', deleteError, { action: 'rollbackSession', sessionId: sessionData.id });
           }
         } catch (rollbackError) {
-          console.error('Rollback failed:', rollbackError);
+          Logger.error('Session rollback failed', rollbackError as Error, { action: 'rollbackSession' });
         }
 
         throw new Error(`Failed to create players: ${playersError.message}`);
@@ -578,7 +511,7 @@ export default function CreateSessionScreen() {
         .eq('session_id', sessionData.id);
 
       if (fetchError || !createdPlayers || createdPlayers.length === 0) {
-        console.error('Failed to fetch created players:', fetchError);
+        Logger.error('Failed to fetch created players', fetchError || new Error('No players found'), { action: 'fetchPlayers', sessionId: sessionData.id });
         // Don't throw - session is created, just won't have first round generated
       } else {
         try {
@@ -629,7 +562,7 @@ export default function CreateSessionScreen() {
             .eq('id', sessionData.id);
 
           if (roundError) {
-            console.error('Failed to generate first round:', roundError);
+            Logger.error('Failed to generate first round', roundError, { action: 'generateFirstRound', sessionId: sessionData.id });
             // Don't throw - session is created, user can generate round manually
           } else {
             // Log event for first round generation
@@ -640,7 +573,7 @@ export default function CreateSessionScreen() {
             });
           }
         } catch (algorithmError) {
-          console.error('Failed to initialize algorithm or generate round:', algorithmError);
+          Logger.error('Failed to initialize algorithm or generate round', algorithmError as Error, { action: 'initAlgorithm', sessionId: sessionData.id });
           // Don't throw - session is created, user can generate round manually
         }
       }
@@ -648,12 +581,37 @@ export default function CreateSessionScreen() {
       // STATE MACHINE: Mark as completed
       setCreationState('completed');
 
+      const duration = Date.now() - startTime;
+
+      Logger.info('Session creation completed successfully', {
+        action: 'createSession',
+        userId: user.id,
+        sessionId: sessionData.id,
+        metadata: {
+          playerCount: players.length,
+          courts: formData.courts,
+          hasFirstRound: true,
+          durationMs: duration,
+        }
+      });
+
+      // Log performance warning if operation was slow
+      if (duration > 5000) {
+        Logger.warn('Session creation was slow', {
+          action: 'createSession',
+          metadata: {
+            durationMs: duration,
+            playerCount: players.length,
+          },
+        });
+      }
+
       // Increment session count for free tier tracking
       if (featureAccess && featureAccess.maxSessionsPerMonth !== -1) {
         try {
           incrementSessionCount();
         } catch (countError) {
-          console.error('Failed to increment session count:', countError);
+          Logger.error('Failed to increment session count', countError as Error, { action: 'incrementSessionCount', userId: user?.id });
           // Non-critical error, allow session creation to complete
         }
       }
@@ -687,16 +645,20 @@ export default function CreateSessionScreen() {
         text2: isOffline ? 'Please check your connection and try again' : errorMessage,
       });
 
-      // Log for debugging (to be replaced with error tracking service - Issue #11)
-      console.error('[Create Session Error]:', error, {
+      // Log error with context
+      Logger.error('Create session failed', error as Error, {
+        action: 'createSession',
+        userId: user?.id,
         sessionId: createdSessionId,
-        playerCount: players.length,
-        isOffline,
+        metadata: {
+          playerCount: players.length,
+          isOffline,
+        },
       });
     }
   };
 
-  const { errors: validationErrors } = validateForm();
+  const { errors: validationErrors, warnings: validationWarnings } = validateForm();
 
   // Helper: Get loading message based on state
   const getLoadingMessage = () => {
@@ -1041,17 +1003,15 @@ export default function CreateSessionScreen() {
               />
             </View>
 
-            {/* Points/Games Preset Selector */}
+            {/* Points/Games Selector */}
             <View>
-              <Text style={{ fontSize: 12, fontWeight: '500', color: '#6B7280', marginBottom: 6 }}>
-                {formData.scoring_mode === 'total_games' || formData.scoring_mode === 'first_to'
-                  ? 'Games per Match'
-                  : 'Points per Match'}
+              <Text style={{ fontSize: 12, fontWeight: '500', color: '#6B7280', marginBottom: 8 }}>
+                {formData.scoring_mode === 'points' ? 'Points per Match' : 'Games per Match'}
               </Text>
               <PresetSelector
                 value={formData.points_per_match}
                 onChange={(value) => updateField('points_per_match', value)}
-                mode={formData.scoring_mode === 'first_to' || formData.scoring_mode === 'total_games' ? 'games' : 'points'}
+                mode={formData.scoring_mode === 'points' ? 'points' : 'games'}
               />
             </View>
           </View>
@@ -1311,6 +1271,26 @@ export default function CreateSessionScreen() {
               canImportFromReclub={featureAccess?.canImportFromReclub ?? false}
             />
           </View>
+
+          {/* Validation Warnings - Always show if present */}
+          {validationWarnings.length > 0 && (
+            <View
+              style={{
+                backgroundColor: '#FFF7ED',
+                borderWidth: 1,
+                borderColor: '#FED7AA',
+                borderRadius: 16,
+                padding: 14,
+                gap: 6,
+              }}
+            >
+              {validationWarnings.slice(0, 2).map((warning, index) => (
+                <Text key={index} style={{ fontSize: 13, color: '#C2410C', lineHeight: 18 }}>
+                  ⚠️ {warning}
+                </Text>
+              ))}
+            </View>
+          )}
 
           {/* Validation Errors - Only show after first submit attempt */}
           {hasAttemptedSubmit && validationErrors.length > 0 && (

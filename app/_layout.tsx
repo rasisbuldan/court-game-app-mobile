@@ -11,42 +11,99 @@ import { CheckCircle2, XCircle, Info, AlertTriangle, RefreshCw } from 'lucide-re
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { ErrorBoundary } from 'react-error-boundary';
-import { AuthProvider } from '../hooks/useAuth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AuthProvider, useAuth } from '../hooks/useAuth';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import { queryClient, asyncStoragePersister } from '../config/react-query';
 import { useNotifications } from '../hooks/useNotifications';
 import * as Sentry from '@sentry/react-native';
 import { OfflineBanner } from '../components/OfflineBanner';
+import { SyncProgressModal } from '../components/SyncProgressModal';
+import { initializePostHog, identifyUser } from '../services/posthog';
+import { offlineQueue } from '../utils/offlineQueue';
+import { Logger } from '../utils/logger';
 
-// Initialize Sentry
-Sentry.init({
-  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
-  enableInExpoDevelopment: false, // Don't track dev errors
-  debug: __DEV__,
-  tracesSampleRate: __DEV__ ? 1.0 : 0.01, // 1% sampling in production (free tier: 10k transactions/month)
-  environment: __DEV__ ? 'development' : 'production',
-  beforeSend(event) {
-    // Filter PII - mask email addresses
-    if (event.user?.email) {
-      const email = event.user.email;
-      const [local, domain] = email.split('@');
-      event.user.email = `${local.substring(0, 2)}***@${domain}`;
+// Initialize Sentry - wrapped in try-catch to prevent crashes
+// Only initialize if feature flag is enabled
+const isSentryEnabled = process.env.EXPO_PUBLIC_ENABLE_SENTRY === 'true';
+
+if (isSentryEnabled) {
+  try {
+    Sentry.init({
+      dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+      debug: __DEV__,
+      tracesSampleRate: __DEV__ ? 1.0 : 0.01, // 1% sampling in production (free tier: 10k transactions/month)
+      environment: __DEV__ ? 'development' : 'production',
+      beforeSend(event) {
+        // Filter PII - mask email addresses
+        if (event.user?.email) {
+          const email = event.user.email;
+          const [local, domain] = email.split('@');
+          event.user.email = `${local.substring(0, 2)}***@${domain}`;
+        }
+        return event;
+      },
+    });
+
+    if (__DEV__) {
+      Logger.debug('Sentry initialized successfully');
     }
-    return event;
-  },
-  integrations: [
-    new Sentry.ReactNativeTracing({
-      tracingOrigins: ['localhost', /^\//, /^https:\/\//],
-      // Will be configured after navigation ref is available
-    }),
-  ],
-});
+  } catch (error) {
+    // Non-critical - app can run without Sentry
+    Logger.error('Sentry initialization failed', error as Error, { action: 'initSentry' });
+  }
+} else if (__DEV__) {
+  Logger.debug('Sentry disabled via feature flag (EXPO_PUBLIC_ENABLE_SENTRY)');
+}
 
 // Keep splash screen visible while fonts load
 SplashScreen.preventAutoHideAsync();
 
-// Error Fallback Component
+// Error Fallback Component with Enhanced UX
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
+  const [errorCount, setErrorCount] = useState(0);
+  const [showDetails, setShowDetails] = useState(false);
+
+  useEffect(() => {
+    // Track error count to detect crash loops
+    const loadErrorCount = async () => {
+      try {
+        const count = parseInt((await AsyncStorage.getItem('error_count')) || '0', 10) + 1;
+        setErrorCount(count);
+        await AsyncStorage.setItem('error_count', count.toString());
+
+        // Reset error count after 30 seconds (successful recovery)
+        const timer = setTimeout(async () => {
+          try {
+            await AsyncStorage.removeItem('error_count');
+          } catch (e) {
+            // Ignore storage errors
+          }
+        }, 30000);
+
+        return () => clearTimeout(timer);
+      } catch (e) {
+        // Ignore storage errors - default to count 1
+        setErrorCount(1);
+      }
+    };
+
+    loadErrorCount();
+  }, []);
+
+  const handleReset = async () => {
+    // Clear error count on manual reset
+    try {
+      await AsyncStorage.removeItem('error_count');
+    } catch (e) {
+      // Ignore storage errors
+    }
+    resetErrorBoundary();
+  };
+
+  // Detect crash loop (more than 3 errors in short time)
+  const isCrashLoop = errorCount > 3;
+
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#F9FAFB' }}>
       <View style={{ alignItems: 'center', maxWidth: 400 }}>
@@ -55,25 +112,46 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
             width: 80,
             height: 80,
             borderRadius: 40,
-            backgroundColor: '#FEE2E2',
+            backgroundColor: isCrashLoop ? '#FEF2F2' : '#FEE2E2',
             alignItems: 'center',
             justifyContent: 'center',
             marginBottom: 24,
           }}
         >
-          <AlertTriangle color="#DC2626" size={40} strokeWidth={2} />
+          <AlertTriangle color={isCrashLoop ? '#991B1B' : '#DC2626'} size={40} strokeWidth={2} />
         </View>
 
         <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827', marginBottom: 8, textAlign: 'center' }}>
-          Something went wrong
+          {isCrashLoop ? 'App Keep Crashing' : 'Something Went Wrong'}
         </Text>
 
         <Text style={{ fontSize: 15, color: '#6B7280', marginBottom: 24, textAlign: 'center', lineHeight: 22 }}>
-          The app encountered an unexpected error. Don't worry, your data is safe.
+          {isCrashLoop
+            ? 'The app is experiencing repeated crashes. Try restarting the app or reinstalling if the problem persists.'
+            : 'The app encountered an unexpected error. Don\'t worry, your data is safe.'}
         </Text>
 
-        {/* Error details (collapsible in production) */}
+        {/* Error details toggle */}
         {__DEV__ && (
+          <TouchableOpacity
+            onPress={() => setShowDetails(!showDetails)}
+            style={{
+              marginBottom: 16,
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              backgroundColor: '#F3F4F6',
+              borderRadius: 8,
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={{ fontSize: 13, color: '#374151', fontWeight: '600' }}>
+              {showDetails ? 'Hide' : 'Show'} Error Details
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Error details (collapsible, dev only) */}
+        {__DEV__ && showDetails && (
           <ScrollView
             style={{
               maxHeight: 200,
@@ -84,35 +162,52 @@ function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetError
               marginBottom: 24,
             }}
           >
-            <Text style={{ fontSize: 12, fontFamily: 'monospace', color: '#991B1B' }}>
+            <Text style={{ fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#991B1B' }}>
               {error.message}
             </Text>
             {error.stack && (
-              <Text style={{ fontSize: 11, fontFamily: 'monospace', color: '#7F1D1D', marginTop: 8 }}>
+              <Text style={{ fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#7F1D1D', marginTop: 8 }}>
                 {error.stack}
               </Text>
             )}
           </ScrollView>
         )}
 
-        <TouchableOpacity
-          onPress={resetErrorBoundary}
-          style={{
-            backgroundColor: '#EF4444',
-            paddingHorizontal: 24,
-            paddingVertical: 14,
-            borderRadius: 10,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-          }}
-          activeOpacity={0.8}
-        >
-          <RefreshCw color="#FFFFFF" size={18} strokeWidth={2.5} />
-          <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>
-            Try Again
-          </Text>
-        </TouchableOpacity>
+        {/* Action buttons */}
+        <View style={{ width: '100%', gap: 12 }}>
+          {!isCrashLoop && (
+            <TouchableOpacity
+              onPress={handleReset}
+              style={{
+                backgroundColor: '#EF4444',
+                paddingHorizontal: 24,
+                paddingVertical: 14,
+                borderRadius: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}
+              activeOpacity={0.8}
+            >
+              <RefreshCw color="#FFFFFF" size={18} strokeWidth={2.5} />
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>
+                Try Again
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {isCrashLoop && (
+            <View style={{ backgroundColor: '#FEF3C7', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+              <Text style={{ fontSize: 14, color: '#92400E', fontWeight: '600', marginBottom: 8, textAlign: 'center' }}>
+                Restart Required
+              </Text>
+              <Text style={{ fontSize: 13, color: '#92400E', lineHeight: 18, textAlign: 'center' }}>
+                Close and reopen the app to continue. If the problem persists, try reinstalling the app.
+              </Text>
+            </View>
+          )}
+        </View>
 
         <Text style={{ fontSize: 13, color: '#9CA3AF', marginTop: 16, textAlign: 'center' }}>
           If the problem persists, please contact support
@@ -253,8 +348,59 @@ const toastConfig = {
 
 // PHASE 1 FIX: Separate component to use notifications inside AuthProvider
 function AppContent() {
+  const { user } = useAuth();
+
   // Initialize push notifications (needs to be inside AuthProvider)
   useNotifications();
+
+  // Initialize offline queue and PostHog analytics
+  useEffect(() => {
+    let isMounted = true;
+
+    // Initialize offline queue
+    offlineQueue.initialize().catch((error) => {
+      // Non-critical - queue will work with empty state
+      Logger.error('Offline queue initialization failed', error as Error, { action: 'initOfflineQueue' });
+    });
+
+    // Initialize PostHog on app start
+    initializePostHog()
+      .then((client) => {
+        if (!isMounted || !client) return;
+
+        // Identify user if authenticated
+        if (user?.id) {
+          identifyUser(user.id, {
+            email: user.email,
+            createdAt: user.created_at,
+          });
+        }
+      })
+      .catch((error) => {
+        Logger.error('PostHog initialization failed', error as Error, { action: 'initPostHog' });
+      });
+
+    return () => {
+      isMounted = false;
+      // Cleanup offline queue listeners
+      offlineQueue.cleanup();
+    };
+  }, []);
+
+  // Identify user when they sign in
+  useEffect(() => {
+    if (user?.id) {
+      try {
+        identifyUser(user.id, {
+          email: user.email,
+          createdAt: user.created_at,
+        });
+      } catch (error) {
+        // Non-critical - don't crash app if analytics identification fails
+        Logger.error('PostHog user identification failed', error as Error, { action: 'identifyUser', userId: user.id });
+      }
+    }
+  }, [user?.id]);
 
   return (
     <>
@@ -300,6 +446,7 @@ function AppContent() {
         <Stack.Screen name="(tabs)" />
       </Stack>
       <OfflineBanner />
+      <SyncProgressModal />
       <Toast
         config={toastConfig}
         position="bottom"
@@ -345,22 +492,22 @@ function RootLayout() {
 
         // Log to console in development only
         if (__DEV__) {
-          console.error('App Error Boundary caught:', error, errorInfo);
+          Logger.debug('App Error Boundary caught', { error: error.message, stack: error.stack, componentStack: errorInfo.componentStack });
         }
       }}
     >
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-          <ThemeProvider>
-            <PersistQueryClientProvider
-              client={queryClient}
-              persistOptions={{ persister: asyncStoragePersister }}
-            >
-              <AuthProvider>
+          <PersistQueryClientProvider
+            client={queryClient}
+            persistOptions={{ persister: asyncStoragePersister }}
+          >
+            <AuthProvider>
+              <ThemeProvider>
                 <AppContent />
-              </AuthProvider>
-            </PersistQueryClientProvider>
-          </ThemeProvider>
+              </ThemeProvider>
+            </AuthProvider>
+          </PersistQueryClientProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

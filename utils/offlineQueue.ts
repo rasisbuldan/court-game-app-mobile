@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import Toast from 'react-native-toast-message';
 import { supabase } from '../config/supabase';
+import { Logger } from './logger';
 
 export type QueuedOperation = {
   id: string;
@@ -11,15 +13,22 @@ export type QueuedOperation = {
   retryCount: number;
 };
 
+type SyncStatus = 'syncing' | 'synced' | 'failed';
+type SyncStatusCallback = (status: SyncStatus, current: number, total: number) => void;
+
 const QUEUE_KEY = 'OFFLINE_QUEUE';
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
+
+// Exponential backoff delays (in milliseconds)
+const RETRY_DELAYS = [0, 2000, 4000, 8000, 16000]; // 0s, 2s, 4s, 8s, 16s
 
 class OfflineQueueManager {
   private queue: QueuedOperation[] = [];
   private isProcessing = false;
   private listeners: Set<() => void> = new Set();
-  private syncListeners: Set<(status: 'syncing' | 'synced' | 'failed') => void> = new Set();
+  private syncListeners: Set<SyncStatusCallback> = new Set();
   private autoSyncUnsubscribe?: () => void;
+  private currentProgress = { current: 0, total: 0 };
 
   async initialize() {
     try {
@@ -28,7 +37,10 @@ class OfflineQueueManager {
         this.queue = JSON.parse(stored);
       }
     } catch (error) {
-      console.error('Failed to load offline queue:', error);
+      // Non-critical error - queue will start empty
+      if (__DEV__) {
+        Logger.error('Failed to load offline queue', error as Error, { action: 'loadQueue' });
+      }
     }
 
     // Setup auto-sync on network reconnect
@@ -40,7 +52,9 @@ class OfflineQueueManager {
       const isOnline = state.isConnected && state.isInternetReachable !== false;
 
       if (isOnline && this.queue.length > 0 && !this.isProcessing) {
-        console.log('Network reconnected, syncing offline queue...');
+        if (__DEV__) {
+          Logger.info('Network reconnected, syncing offline queue', { queueLength: this.queue.length });
+        }
         this.processQueueWithNotification();
       }
     });
@@ -49,19 +63,21 @@ class OfflineQueueManager {
   private async processQueueWithNotification() {
     if (this.queue.length === 0) return;
 
-    this.notifySyncListeners('syncing');
+    this.notifySyncListeners('syncing', 0, this.queue.length);
 
     try {
       const result = await this.processQueue();
 
       if (result.failed === 0) {
-        this.notifySyncListeners('synced');
+        this.notifySyncListeners('synced', result.success, result.success);
       } else {
-        this.notifySyncListeners('failed');
+        this.notifySyncListeners('failed', result.success, result.success + result.failed);
       }
     } catch (error) {
-      console.error('Auto-sync failed:', error);
-      this.notifySyncListeners('failed');
+      if (__DEV__) {
+        Logger.error('Offline queue auto-sync failed', error as Error, { action: 'autoSync' });
+      }
+      this.notifySyncListeners('failed', 0, this.queue.length);
     }
   }
 
@@ -89,6 +105,19 @@ class OfflineQueueManager {
     await this.saveQueue();
     this.notifyListeners();
 
+    // Show toast notification that operation was queued
+    const netState = await NetInfo.fetch();
+    const isOffline = !netState.isConnected || !netState.isInternetReachable;
+
+    if (isOffline) {
+      Toast.show({
+        type: 'info',
+        text1: 'Saved offline',
+        text2: 'Changes will sync when you\'re back online',
+        visibilityTime: 3000,
+      });
+    }
+
     return operation.id;
   }
 
@@ -104,27 +133,52 @@ class OfflineQueueManager {
     }
 
     this.isProcessing = true;
+    const startTime = Date.now();
     let successCount = 0;
     let failedCount = 0;
 
     // Process operations in order
     const operations = [...this.queue];
+    this.currentProgress.total = operations.length;
 
-    for (const operation of operations) {
+    for (let i = 0; i < operations.length; i++) {
+      const operation = operations[i];
+      this.currentProgress.current = i;
+
       try {
+        // Apply exponential backoff based on retry count
+        const delay = RETRY_DELAYS[Math.min(operation.retryCount, RETRY_DELAYS.length - 1)];
+        if (delay > 0) {
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
         await this.executeOperation(operation);
         await this.removeOperation(operation.id);
         successCount++;
+
+        // Notify progress
+        this.notifySyncListeners('syncing', i + 1, operations.length);
       } catch (error) {
-        console.error('Failed to execute operation:', error);
+        if (__DEV__) {
+          Logger.error('Offline queue operation failed', error as Error, {
+            action: 'processOperation',
+            metadata: { operationType: operation.type, sessionId: operation.sessionId }
+          });
+        }
+
         operation.retryCount++;
 
         if (operation.retryCount >= MAX_RETRIES) {
-          console.warn('Operation failed after max retries, removing:', operation);
+          if (__DEV__) {
+            Logger.warn('Offline queue: Max retries reached, removing operation', {
+              action: 'maxRetriesReached',
+              metadata: { operationType: operation.type, sessionId: operation.sessionId, retryCount: operation.retryCount }
+            });
+          }
           await this.removeOperation(operation.id);
           failedCount++;
         } else {
-          // Update retry count
+          // Update retry count and save
           const index = this.queue.findIndex((op) => op.id === operation.id);
           if (index !== -1) {
             this.queue[index] = operation;
@@ -135,7 +189,32 @@ class OfflineQueueManager {
     }
 
     this.isProcessing = false;
+    this.currentProgress = { current: 0, total: 0 };
     this.notifyListeners();
+
+    const duration = Date.now() - startTime;
+
+    Logger.info('Offline queue processing completed', {
+      action: 'processQueue',
+      metadata: {
+        totalOperations: operations.length,
+        successCount,
+        failedCount,
+        durationMs: duration,
+      }
+    });
+
+    // Log performance warning if processing was slow
+    if (duration > 10000 && operations.length > 0) {
+      Logger.warn('Offline queue processing was slow', {
+        action: 'processQueue',
+        metadata: {
+          durationMs: duration,
+          operationCount: operations.length,
+          avgTimePerOperation: Math.round(duration / operations.length),
+        },
+      });
+    }
 
     return { success: successCount, failed: failedCount };
   }
@@ -260,7 +339,11 @@ class OfflineQueueManager {
     try {
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(this.queue));
     } catch (error) {
-      console.error('Failed to save offline queue:', error);
+      // Critical error - queue won't persist
+      if (__DEV__) {
+        Logger.error('Failed to save offline queue', error as Error, { action: 'saveQueue' });
+      }
+      // In production, consider reporting to error tracking service
     }
   }
 
@@ -277,17 +360,33 @@ class OfflineQueueManager {
     return () => this.listeners.delete(callback);
   }
 
-  onSyncStatusChange(callback: (status: 'syncing' | 'synced' | 'failed') => void) {
+  onSyncStatusChange(callback: SyncStatusCallback) {
     this.syncListeners.add(callback);
     return () => this.syncListeners.delete(callback);
   }
 
   private notifyListeners() {
-    this.listeners.forEach((callback) => callback());
+    this.listeners.forEach((callback) => {
+      try {
+        callback();
+      } catch (error) {
+        if (__DEV__) {
+          Logger.error('Offline queue listener error', error as Error, { action: 'notifyListeners' });
+        }
+      }
+    });
   }
 
-  private notifySyncListeners(status: 'syncing' | 'synced' | 'failed') {
-    this.syncListeners.forEach((callback) => callback(status));
+  private notifySyncListeners(status: SyncStatus, current: number, total: number) {
+    this.syncListeners.forEach((callback) => {
+      try {
+        callback(status, current, total);
+      } catch (error) {
+        if (__DEV__) {
+          Logger.error('Offline queue sync listener error', error as Error, { action: 'notifySyncListeners' });
+        }
+      }
+    });
   }
 
   async clearQueue() {

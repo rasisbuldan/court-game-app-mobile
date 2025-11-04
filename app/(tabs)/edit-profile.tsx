@@ -18,6 +18,8 @@ import { X, Check, Camera, User } from 'lucide-react-native';
 import Toast from 'react-native-toast-message';
 import { useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
+import { validateDisplayName, validateUsername } from '../../utils/formValidation';
+import { Logger } from '../../utils/logger';
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -63,7 +65,7 @@ export default function EditProfileScreen() {
         setAvatarUrl(data.avatar_url || '');
       }
     } catch (error) {
-      console.error('Error loading profile:', error);
+      Logger.error('Error loading profile', error as Error, { action: 'loadProfile', userId: user?.id });
       Toast.show({
         type: 'error',
         text1: 'Failed to load profile',
@@ -126,7 +128,7 @@ export default function EditProfileScreen() {
           });
 
         if (uploadError) {
-          console.error('Upload error:', uploadError);
+          Logger.error('Avatar upload failed', uploadError, { action: 'uploadAvatar', userId: user?.id });
           throw uploadError;
         }
 
@@ -145,7 +147,7 @@ export default function EditProfileScreen() {
         });
       }
     } catch (error) {
-      console.error('Error uploading avatar:', error);
+      Logger.error('Error uploading avatar', error as Error, { action: 'uploadAvatar', userId: user?.id });
       Toast.show({
         type: 'error',
         text1: 'Upload failed',
@@ -162,34 +164,20 @@ export default function EditProfileScreen() {
       username: '',
     };
 
-    let isValid = true;
-
     // Display name validation
-    if (!displayName.trim()) {
-      newErrors.displayName = 'Display name is required';
-      isValid = false;
-    } else if (displayName.length > 50) {
-      newErrors.displayName = 'Display name must be less than 50 characters';
-      isValid = false;
+    const nameResult = validateDisplayName(displayName, 2, 50);
+    if (!nameResult.isValid) {
+      newErrors.displayName = nameResult.message;
     }
 
     // Username validation
-    if (!username.trim()) {
-      newErrors.username = 'Username is required';
-      isValid = false;
-    } else if (username.length < 3) {
-      newErrors.username = 'Username must be at least 3 characters';
-      isValid = false;
-    } else if (username.length > 30) {
-      newErrors.username = 'Username must be less than 30 characters';
-      isValid = false;
-    } else if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-      newErrors.username = 'Username can only contain letters, numbers, and underscores';
-      isValid = false;
+    const usernameResult = validateUsername(username, 3, 30);
+    if (!usernameResult.isValid) {
+      newErrors.username = usernameResult.message;
     }
 
     setErrors(newErrors);
-    return isValid;
+    return newErrors.displayName === '' && newErrors.username === '';
   };
 
   const handleSave = async () => {
@@ -242,7 +230,7 @@ export default function EditProfileScreen() {
 
       router.back();
     } catch (error) {
-      console.error('Error updating profile:', error);
+      Logger.error('Error updating profile', error as Error, { action: 'updateProfile', userId: user?.id });
       Toast.show({
         type: 'error',
         text1: 'Failed to update profile',

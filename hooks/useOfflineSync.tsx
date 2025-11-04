@@ -3,6 +3,7 @@ import { AppState, AppStateStatus } from 'react-native';
 import { offlineQueue } from '../utils/offlineQueue';
 import { useNetworkStatus } from './useNetworkStatus';
 import Toast from 'react-native-toast-message';
+import { Logger } from '../utils/logger';
 
 export function useOfflineSync() {
   const { isOnline } = useNetworkStatus();
@@ -28,12 +29,29 @@ export function useOfflineSync() {
   const processQueue = useCallback(async () => {
     if (!isOnline || isSyncing || queueLength === 0) return;
 
+    Logger.info('Offline sync started', {
+      action: 'processOfflineQueue',
+      metadata: {
+        queueLength,
+        isOnline,
+      },
+    });
+
     setIsSyncing(true);
 
     try {
       const result = await offlineQueue.processQueue();
 
       if (result.success > 0) {
+        Logger.info('Offline sync completed successfully', {
+          action: 'processOfflineQueue',
+          metadata: {
+            successCount: result.success,
+            failedCount: result.failed,
+            totalOperations: result.success + result.failed,
+          },
+        });
+
         Toast.show({
           type: 'success',
           text1: 'Synced!',
@@ -43,6 +61,14 @@ export function useOfflineSync() {
       }
 
       if (result.failed > 0) {
+        Logger.warn('Offline sync completed with failures', {
+          action: 'processOfflineQueue',
+          metadata: {
+            successCount: result.success,
+            failedCount: result.failed,
+          },
+        });
+
         Toast.show({
           type: 'error',
           text1: 'Sync Failed',
@@ -50,8 +76,8 @@ export function useOfflineSync() {
         });
       }
     } catch (error) {
-      console.error('Failed to process queue:', error);
-    } finally {
+      Logger.error('Failed to process offline queue', error as Error, { action: 'processQueue', queueLength });
+    } finally{
       setIsSyncing(false);
     }
   }, [isOnline, isSyncing, queueLength]);

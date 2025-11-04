@@ -451,10 +451,13 @@ describe('calculatePlayerStatsFromRounds - Optimized with Map (Issue #14 Fix)', 
       // Act
       const result = calculatePlayerStatsFromRounds(players, rounds, session);
 
-      // Assert - Total points across all players should equal sum of all scores
+      // Assert - Total points across all players should equal sum of all team scores
+      // Each player gets their team's score, so total = number of players * team scores
       const totalPoints = result.reduce((sum, p) => sum + p.totalPoints, 0);
-      // Match 1: 15 + 9 = 24, Match 2: 12 + 12 = 24, Total = 48
-      expect(totalPoints).toBe(48);
+      // Match 1: Team1 (15 * 2 players) + Team2 (9 * 2 players) = 30 + 18 = 48
+      // Match 2: Team1 (12 * 2 players) + Team2 (12 * 2 players) = 24 + 24 = 48
+      // Total = 48 + 48 = 96
+      expect(totalPoints).toBe(96);
 
       // Total play count should equal players per match * number of matches
       const totalPlayCount = result.reduce((sum, p) => sum + p.playCount, 0);

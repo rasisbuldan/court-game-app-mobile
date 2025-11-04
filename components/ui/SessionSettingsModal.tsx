@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, Modal, Switch, Platform } from 'react-native';
-import { X, Zap, Moon, Type } from 'lucide-react-native';
+import { X, Zap, Moon, Type, Edit3 } from 'lucide-react-native';
 import { useTheme, FontSize, ThemeMode, getThemeColors } from '../../contexts/ThemeContext';
+import { useScoreEntryPreference, ScoreEntryMode } from '../../hooks/useScoreEntryPreference';
 
 interface SessionSettingsModalProps {
   visible: boolean;
@@ -21,6 +22,8 @@ export function SessionSettingsModal({
     reduceAnimation,
     toggleReduceAnimation,
   } = useTheme();
+
+  const { scoreEntryMode, setScoreEntryMode } = useScoreEntryPreference();
 
   const colors = getThemeColors(isDark);
 
@@ -115,6 +118,59 @@ export function SessionSettingsModal({
                         className="font-medium text-center capitalize"
                       >
                         {size}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </View>
+
+            {/* Score Entry Mode Selector */}
+            <View style={{ borderBottomColor: colors.border }} className="py-4 border-b">
+              <View className="flex-1">
+                <View className="flex-row items-center gap-2 mb-2">
+                  <Edit3 color={colors.textSecondary} size={18} />
+                  <Text style={{ color: colors.text, fontSize: 16 * fontScale }} className="font-semibold">
+                    Score Entry Method
+                  </Text>
+                </View>
+                <Text style={{ color: colors.textSecondary, fontSize: 14 * fontScale }} className="mb-3">
+                  Choose how to enter match scores
+                </Text>
+                <View className="flex-row gap-2">
+                  {([
+                    { value: 'inline', label: 'Inline', description: 'Quick textbox' },
+                    { value: 'modal', label: 'Modal', description: 'Full screen' },
+                  ] as { value: ScoreEntryMode; label: string; description: string }[]).map((mode) => (
+                    <TouchableOpacity
+                      key={mode.value}
+                      onPress={() => setScoreEntryMode(mode.value)}
+                      className="flex-1 py-3 px-3 rounded-lg"
+                      style={{
+                        backgroundColor: scoreEntryMode === mode.value ? colors.primary : colors.grayLight,
+                      }}
+                      accessible
+                      accessibilityRole="button"
+                      accessibilityLabel={`${mode.label} score entry`}
+                      accessibilityState={{ selected: scoreEntryMode === mode.value }}
+                    >
+                      <Text
+                        style={{
+                          color: scoreEntryMode === mode.value ? '#FFFFFF' : colors.text,
+                          fontSize: 14 * fontScale,
+                        }}
+                        className="font-semibold text-center mb-1"
+                      >
+                        {mode.label}
+                      </Text>
+                      <Text
+                        style={{
+                          color: scoreEntryMode === mode.value ? '#FFFFFF' : colors.textSecondary,
+                          fontSize: 12 * fontScale,
+                        }}
+                        className="text-center"
+                      >
+                        {mode.description}
                       </Text>
                     </TouchableOpacity>
                   ))}

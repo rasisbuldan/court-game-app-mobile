@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, Platform, Switch, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Platform, Switch, Alert, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { useRouter } from 'expo-router';
 import {
@@ -53,39 +53,15 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
 
   // Notification preferences from Supabase
-  const { data: preferences, isLoading } = useNotificationPreferences(user?.id);
+  const { data: preferences, isLoading: preferencesLoading } = useNotificationPreferences(user?.id);
   const updatePreferences = useUpdateNotificationPreferences();
 
   // Subscription (for refetching when simulator changes)
   const { refetch: refetchSubscription } = useSubscription();
 
-  // Local toggle states
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [sessionReminders, setSessionReminders] = useState(true);
-  const [clubInvites, setClubInvites] = useState(true);
-  const [matchResults, setMatchResults] = useState(true);
-  const [sessionUpdates, setSessionUpdates] = useState(true);
-  const [clubAnnouncements, setClubAnnouncements] = useState(true);
-  const [soundEffects, setSoundEffects] = useState(true);
-  const [darkMode, setDarkMode] = useState(false);
-
   // Account Simulator state (dev/test accounts only)
   const [simulatorState, setSimulatorState] = useState<SimulatorState | null>(null);
   const isDevAccount = isSimulatorAllowed(user?.email);
-
-  // Sync local state with preferences from database
-  useEffect(() => {
-    if (preferences) {
-      setPushNotifications(preferences.push_enabled);
-      setEmailNotifications(preferences.email_enabled);
-      setSessionReminders(preferences.session_reminders);
-      setClubInvites(preferences.club_invites);
-      setMatchResults(preferences.match_results);
-      setSessionUpdates(preferences.session_updates);
-      setClubAnnouncements(preferences.club_announcements);
-    }
-  }, [preferences]);
 
   // Load simulator state for dev accounts
   useEffect(() => {
@@ -94,7 +70,7 @@ export default function SettingsScreen() {
     }
   }, [isDevAccount]);
 
-  // Helper to update preferences
+  // Helper to update preferences with optimistic update
   const updatePreference = (key: string, value: boolean) => {
     if (!user) return;
     updatePreferences.mutate({
@@ -270,6 +246,24 @@ export default function SettingsScreen() {
         style={{ paddingTop: insets.top + 76 }}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 120 }}
       >
+        {/* Loading State */}
+        {preferencesLoading && (
+          <View style={{
+            backgroundColor: '#DBEAFE',
+            borderRadius: 12,
+            padding: 12,
+            marginBottom: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12
+          }}>
+            <ActivityIndicator size="small" color="#3B82F6" />
+            <Text style={{ fontSize: 13, color: '#1E40AF', fontWeight: '500' }}>
+              Loading preferences...
+            </Text>
+          </View>
+        )}
+
         {/* Account Section */}
         <View style={{ gap: 8, marginBottom: 24 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 4 }}>
@@ -381,13 +375,11 @@ export default function SettingsScreen() {
                 </View>
               </View>
               <Switch
-                value={pushNotifications}
-                onValueChange={(value) => {
-                  setPushNotifications(value);
-                  updatePreference('push_enabled', value);
-                }}
+                value={preferences?.push_enabled ?? true}
+                onValueChange={(value) => updatePreference('push_enabled', value)}
+                disabled={preferencesLoading || updatePreferences.isPending}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
-                thumbColor={Platform.OS === 'ios' ? undefined : pushNotifications ? '#FFFFFF' : '#F3F4F6'}
+                thumbColor={Platform.OS === 'ios' ? undefined : preferences?.push_enabled ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
               />
             </View>
@@ -414,13 +406,11 @@ export default function SettingsScreen() {
                 </View>
               </View>
               <Switch
-                value={emailNotifications}
-                onValueChange={(value) => {
-                  setEmailNotifications(value);
-                  updatePreference('email_enabled', value);
-                }}
+                value={preferences?.email_enabled ?? true}
+                onValueChange={(value) => updatePreference('email_enabled', value)}
+                disabled={preferencesLoading || updatePreferences.isPending}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
-                thumbColor={Platform.OS === 'ios' ? undefined : emailNotifications ? '#FFFFFF' : '#F3F4F6'}
+                thumbColor={Platform.OS === 'ios' ? undefined : preferences?.email_enabled ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
               />
             </View>
@@ -447,13 +437,11 @@ export default function SettingsScreen() {
                 </View>
               </View>
               <Switch
-                value={sessionReminders}
-                onValueChange={(value) => {
-                  setSessionReminders(value);
-                  updatePreference('session_reminders', value);
-                }}
+                value={preferences?.session_reminders ?? true}
+                onValueChange={(value) => updatePreference('session_reminders', value)}
+                disabled={preferencesLoading || updatePreferences.isPending}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
-                thumbColor={Platform.OS === 'ios' ? undefined : sessionReminders ? '#FFFFFF' : '#F3F4F6'}
+                thumbColor={Platform.OS === 'ios' ? undefined : preferences?.session_reminders ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
               />
             </View>
@@ -480,13 +468,11 @@ export default function SettingsScreen() {
                 </View>
               </View>
               <Switch
-                value={clubInvites}
-                onValueChange={(value) => {
-                  setClubInvites(value);
-                  updatePreference('club_invites', value);
-                }}
+                value={preferences?.club_invites ?? true}
+                onValueChange={(value) => updatePreference('club_invites', value)}
+                disabled={preferencesLoading || updatePreferences.isPending}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
-                thumbColor={Platform.OS === 'ios' ? undefined : clubInvites ? '#FFFFFF' : '#F3F4F6'}
+                thumbColor={Platform.OS === 'ios' ? undefined : preferences?.club_invites ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
               />
             </View>
@@ -511,13 +497,11 @@ export default function SettingsScreen() {
                 </View>
               </View>
               <Switch
-                value={matchResults}
-                onValueChange={(value) => {
-                  setMatchResults(value);
-                  updatePreference('match_results', value);
-                }}
+                value={preferences?.match_results ?? true}
+                onValueChange={(value) => updatePreference('match_results', value)}
+                disabled={preferencesLoading || updatePreferences.isPending}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
-                thumbColor={Platform.OS === 'ios' ? undefined : matchResults ? '#FFFFFF' : '#F3F4F6'}
+                thumbColor={Platform.OS === 'ios' ? undefined : preferences?.match_results ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
               />
             </View>
@@ -587,8 +571,8 @@ export default function SettingsScreen() {
                 </View>
               </View>
               <Switch
-                value={darkMode}
-                onValueChange={setDarkMode}
+                value={preferences?.dark_mode ?? false}
+                onValueChange={(value) => updatePreference('dark_mode', value)}
                 disabled={true}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
                 thumbColor={Platform.OS === 'ios' ? undefined : '#F3F4F6'}
@@ -616,10 +600,11 @@ export default function SettingsScreen() {
                 </View>
               </View>
               <Switch
-                value={soundEffects}
-                onValueChange={setSoundEffects}
+                value={preferences?.sound_effects ?? true}
+                onValueChange={(value) => updatePreference('sound_effects', value)}
+                disabled={preferencesLoading || updatePreferences.isPending}
                 trackColor={{ false: '#E5E7EB', true: '#EF4444' }}
-                thumbColor={Platform.OS === 'ios' ? undefined : soundEffects ? '#FFFFFF' : '#F3F4F6'}
+                thumbColor={Platform.OS === 'ios' ? undefined : preferences?.sound_effects ? '#FFFFFF' : '#F3F4F6'}
                 ios_backgroundColor="#E5E7EB"
               />
             </View>

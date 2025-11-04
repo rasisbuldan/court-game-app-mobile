@@ -6,6 +6,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { Logger } from '../utils/logger';
 import { NotificationType } from './notificationsEnhanced';
 import {
   NotificationError,
@@ -50,7 +51,7 @@ class NotificationQueue {
 
       // If we just came online, process the queue
       if (wasOffline && this.networkAvailable) {
-        console.log('Network restored, processing notification queue');
+        Logger.info('Network restored, processing notification queue');
         this.processQueue();
       }
     });
@@ -70,7 +71,7 @@ class NotificationQueue {
           }
           return value;
         });
-        console.log(`Loaded ${this.queue.length} notifications from queue`);
+        Logger.debug(`Loaded ${this.queue.length} notifications from queue`);
       }
     } catch (error) {
       errorLogger.log(
@@ -112,7 +113,7 @@ class NotificationQueue {
     if (this.queue.length >= MAX_QUEUE_SIZE) {
       // Remove oldest item
       this.queue.shift();
-      console.warn('Notification queue full, removing oldest item');
+      Logger.warn('Notification queue full, removing oldest item');
     }
 
     const queuedNotification: QueuedNotification = {
@@ -125,7 +126,7 @@ class NotificationQueue {
     this.queue.push(queuedNotification);
     await this.saveQueue();
 
-    console.log(`Queued notification: ${notification.type}`);
+    Logger.debug(`Queued notification: ${notification.type}`);
 
     // Try to process immediately if online
     if (this.networkAvailable) {
@@ -142,7 +143,7 @@ class NotificationQueue {
     }
 
     this.processing = true;
-    console.log(`Processing ${this.queue.length} queued notifications`);
+    Logger.debug(`Processing ${this.queue.length} queued notifications`);
 
     const results = {
       sent: 0,
@@ -192,7 +193,7 @@ class NotificationQueue {
     await this.saveQueue();
     this.processing = false;
 
-    console.log('Queue processed:', results);
+    Logger.info('Queue processed', { results });
   }
 
   /**
@@ -249,7 +250,7 @@ class NotificationQueue {
   async clearQueue() {
     this.queue = [];
     await this.saveQueue();
-    console.log('Notification queue cleared');
+    Logger.info('Notification queue cleared');
   }
 
   /**

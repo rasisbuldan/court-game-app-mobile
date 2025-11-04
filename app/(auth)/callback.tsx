@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { View, ActivityIndicator, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../config/supabase';
+import { Logger } from '../../utils/logger';
 
 export default function CallbackScreen() {
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function CallbackScreen() {
           router.replace('/(auth)/login');
         }
       } catch (error) {
-        console.error('OAuth callback error:', error);
+        Logger.error('OAuth callback failed', error as Error, { action: 'oauthCallback' });
         router.replace('/(auth)/login');
       }
     };

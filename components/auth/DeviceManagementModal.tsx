@@ -18,6 +18,7 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import Toast from 'react-native-toast-message';
 import { DeviceInfo, removeDevice } from '../../services/deviceService';
+import { Logger } from '../../utils/logger';
 
 interface DeviceManagementModalProps {
   visible: boolean;
@@ -60,7 +61,11 @@ export function DeviceManagementModal({
               // Notify parent to retry registration
               onDeviceRemoved();
             } catch (error) {
-              console.error('Error removing device:', error);
+              Logger.error('Error removing device', error as Error, {
+                action: 'removeDevice',
+                userId,
+                deviceId: device.id
+              });
               Toast.show({
                 type: 'error',
                 text1: 'Error',

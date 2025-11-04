@@ -7,6 +7,7 @@
 import { supabase } from '../config/supabase';
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
+import { Logger } from '../utils/logger';
 import {
   NotificationError,
   NotificationErrorCode,
@@ -208,7 +209,7 @@ class TokenManager {
 
       if (error) throw error;
 
-      console.log(`Cleaned up ${count || 0} stale tokens`);
+      Logger.info(`Cleaned up ${count || 0} stale tokens`, { userId, count });
       return count || 0;
     } catch (error) {
       errorLogger.log(
@@ -246,7 +247,7 @@ class TokenManager {
       }
     } catch (error) {
       // Silently fail - this is not critical
-      console.warn('Failed to update last_used timestamp:', error);
+      Logger.warn('Failed to update last_used timestamp', { error });
     }
   }
 

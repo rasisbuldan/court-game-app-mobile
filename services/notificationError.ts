@@ -4,6 +4,8 @@
  * Provides robust error handling, logging, and monitoring for notification services
  */
 
+import { Logger } from '../utils/logger';
+
 export enum NotificationErrorCode {
   PERMISSION_DENIED = 'PERMISSION_DENIED',
   TOKEN_REGISTRATION_FAILED = 'TOKEN_REGISTRATION_FAILED',
@@ -78,16 +80,16 @@ class NotificationErrorLogger {
       this.errors = this.errors.slice(-this.maxErrors);
     }
 
-    // Log to console in development
-    if (__DEV__) {
-      console.error('[Notification Error]', {
+    // Log using centralized logger (already handles __DEV__ check)
+    Logger.error('Notification Error', error.originalError, {
+      action: 'notification_error',
+      metadata: {
         code: error.code,
         message: error.message,
         retryable: error.retryable,
         context: error.context,
-        originalError: error.originalError,
-      });
-    }
+      },
+    });
 
     // In production, you could send to error tracking service like Sentry
     this.reportToMonitoring(error);

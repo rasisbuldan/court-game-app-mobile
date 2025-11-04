@@ -12,6 +12,7 @@ import * as Crypto from 'expo-crypto';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { supabase } from '../config/supabase';
+import { Logger } from '../utils/logger';
 
 // ============================================================================
 // Types
@@ -80,7 +81,7 @@ export async function getDeviceFingerprint(): Promise<string> {
 
     return fingerprint;
   } catch (error) {
-    console.error('Error generating device fingerprint:', error);
+    Logger.error('Error generating device fingerprint', error as Error, { action: 'generateDeviceFingerprint' });
     throw new Error('Failed to generate device fingerprint');
   }
 }
@@ -162,7 +163,7 @@ export async function checkDeviceLimit(userId: string): Promise<DeviceCheckResul
       currentDeviceRegistered: false,
     };
   } catch (error) {
-    console.error('Error checking device limit:', error);
+    Logger.error('Error checking device limit', error as Error, { action: 'checkDeviceLimit', userId });
     throw error;
   }
 }
@@ -219,7 +220,7 @@ export async function registerCurrentDevice(userId: string): Promise<DeviceInfo>
     if (error) throw error;
     return data;
   } catch (error) {
-    console.error('Error registering device:', error);
+    Logger.error('Error registering device', error as Error, { action: 'registerDevice', userId });
     throw error;
   }
 }
@@ -238,7 +239,7 @@ export async function updateDeviceActivity(userId: string): Promise<void> {
       .eq('user_id', userId)
       .eq('device_fingerprint', fingerprint);
   } catch (error) {
-    console.error('Error updating device activity:', error);
+    Logger.error('Error updating device activity', error as Error, { action: 'updateDeviceActivity', userId });
     // Non-critical error, don't throw
   }
 }
@@ -262,7 +263,7 @@ export async function getUserDevices(userId: string): Promise<DeviceInfo[]> {
     if (error) throw error;
     return data || [];
   } catch (error) {
-    console.error('Error fetching user devices:', error);
+    Logger.error('Error fetching user devices', error as Error, { action: 'getUserDevices', userId });
     throw error;
   }
 }
@@ -275,7 +276,7 @@ export async function isCurrentDevice(deviceFingerprint: string): Promise<boolea
     const currentFingerprint = await getDeviceFingerprint();
     return deviceFingerprint === currentFingerprint;
   } catch (error) {
-    console.error('Error checking current device:', error);
+    Logger.error('Error checking current device', error as Error, { action: 'isCurrentDevice', userId });
     return false;
   }
 }
@@ -302,7 +303,7 @@ export async function removeDevice(deviceId: string, userId: string): Promise<vo
     // when it tries to make an API call and the RLS policy blocks it
     // or when the auth state listener detects the device is inactive
   } catch (error) {
-    console.error('Error removing device:', error);
+    Logger.error('Error removing device', error as Error, { action: 'removeDevice', userId, deviceId });
     throw error;
   }
 }
@@ -324,7 +325,7 @@ export async function updateDeviceName(
 
     if (error) throw error;
   } catch (error) {
-    console.error('Error updating device name:', error);
+    Logger.error('Error updating device name', error as Error, { action: 'updateDeviceName', userId, deviceId });
     throw error;
   }
 }
@@ -361,7 +362,7 @@ export async function validateDeviceSession(userId: string): Promise<boolean> {
     // Device is still active
     return true;
   } catch (error) {
-    console.error('Error validating device session:', error);
+    Logger.error('Error validating device session', error as Error, { action: 'validateDeviceSession', userId });
     return false;
   }
 }

@@ -11,6 +11,7 @@ import {
   setBadgeCount,
 } from '../services/notifications';
 import { useAuth } from './useAuth';
+import { Logger } from '../utils/logger';
 
 export function useNotifications() {
   const { user } = useAuth();
@@ -29,14 +30,18 @@ export function useNotifications() {
         if (token) {
           setExpoPushToken(token);
           // Save token to Supabase
-          savePushToken(user.id, token).catch(console.error);
+          savePushToken(user.id, token).catch((error) =>
+            Logger.error('Failed to save push token', error as Error, { action: 'savePushToken', userId: user.id })
+          );
         }
       })
-      .catch(console.error);
+      .catch((error) =>
+        Logger.error('Failed to register for push notifications', error as Error, { action: 'registerPushNotifications', userId: user.id })
+      );
 
     // Listener for notifications received while app is foregrounded
     notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
-      console.log('Notification received:', notification);
+      Logger.info('Notification received', { notificationId: notification.request.identifier });
       setNotification(notification);
 
       // Update badge count
@@ -45,7 +50,7 @@ export function useNotifications() {
 
     // Listener for when user taps on a notification
     responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      console.log('Notification tapped:', response);
+      Logger.info('Notification tapped', { notificationId: response.notification.request.identifier });
       handleNotificationResponse(response);
     });
 
@@ -95,11 +100,13 @@ export function useNotifications() {
         break;
 
       default:
-        console.log('Unknown notification type:', data.type);
+        Logger.warn('Unknown notification type', { notificationType: data.type });
     }
 
     // Clear the badge when notification is handled
-    setBadgeCount(0).catch(console.error);
+    setBadgeCount(0).catch((error) =>
+      Logger.error('Failed to clear badge count', error as Error, { action: 'setBadgeCount' })
+    );
   };
 
   // Update badge count based on unread notifications
@@ -108,7 +115,7 @@ export function useNotifications() {
       const delivered = await Notifications.getPresentedNotificationsAsync();
       await setBadgeCount(delivered.length);
     } catch (error) {
-      console.error('Error updating badge count:', error);
+      Logger.error('Error updating badge count', error as Error, { action: 'updateBadgeCount' });
     }
   };
 

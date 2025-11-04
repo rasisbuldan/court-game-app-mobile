@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { supabase } from '../config/supabase';
+import { Logger } from '../utils/logger';
 import {
   NotificationError,
   NotificationErrorCode,
@@ -354,7 +355,7 @@ export async function savePushToken(userId: string, token: string): Promise<void
       { userId, deviceInfo }
     );
 
-    console.log('Push token saved successfully');
+    Logger.info('Push token saved successfully', { userId });
   } catch (error) {
     if (error instanceof NotificationError) {
       errorLogger.log(error);
@@ -393,7 +394,7 @@ export async function removePushToken(userId: string, token: string): Promise<vo
       { userId, operation: 'remove' }
     );
 
-    console.log('Push token removed successfully');
+    Logger.info('Push token removed successfully', { userId });
   } catch (error) {
     // Log but don't throw on cleanup errors
     errorLogger.log(
