@@ -15,10 +15,11 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "eas-build-pre-install": "cd ../.. && yarn install --frozen-lockfile"
   },
   "dependencies": {
-    "@courtster/shared": "1.0.0",
+    "@courtster/shared": "*",
     "@expo/metro-runtime": "~6.1.2",
     "@react-native-async-storage/async-storage": "^2.1.0",
     "@react-native-community/datetimepicker": "^8.5.0",

@@ -31,7 +31,6 @@
       "distribution": "store",
       "autoIncrement": true,
       "channel": "production",
-      "prebuildCommand": "cd ../.. && rm -rf packages/mobile/node_modules/@courtster && mkdir -p packages/mobile/node_modules/@courtster && cp -r packages/shared packages/mobile/node_modules/@courtster/shared && cd packages/mobile && node -e \"const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));delete p.dependencies['@courtster/shared'];fs.writeFileSync('package.json',JSON.stringify(p,null,2))\"",
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://bmnpkthulhgrqzykhqsa.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtbnBrdGh1bGhncnF6eWtocXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNDk4NDAsImV4cCI6MjA3MjkyNTg0MH0.SiM6dpe5TV7cS4tzdMtrc5C-l_vV3vThejROcuhn-1Q",
