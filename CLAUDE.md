@@ -370,6 +370,32 @@ type Session = Database['public']['Tables']['game_sessions']['Row'];
 type Player = Database['public']['Tables']['players']['Row'];
 ```
 
+## Documentation
+
+All documentation is now organized in a structured folder hierarchy:
+
+### 📁 [docs/](./docs/)
+Main documentation directory with organized subdirectories:
+
+- **[docs/setup/](./docs/setup/)** - Configuration guides (push notifications, RevenueCat, OAuth, Grafana, etc.)
+- **[docs/features/](./docs/features/)** - Feature documentation (sessions, clubs, subscriptions, offline sync, etc.)
+- **[docs/architecture/](./docs/architecture/)** - Architecture decisions and patterns (glassmorphism, error boundaries, etc.)
+- **[docs/guides/](./docs/guides/)** - Developer guides (testing strategy, TestFlight publishing, etc.)
+- **[docs/operations/](./docs/operations/)** - Operations docs (console cleanup, maintenance, etc.)
+
+### 📁 [planning/](./planning/)
+Feature planning, roadmaps, and implementation plans
+
+### 📁 [analysis/](./analysis/)
+Code analysis, audits, and reports with subdirectories:
+- **[analysis/audits/](./analysis/audits/)** - Comprehensive code audits
+- **[analysis/issues/](./analysis/issues/)** - Issue analysis and root cause investigations
+- **[analysis/fixes/](./analysis/fixes/)** - Documentation of implemented fixes
+- **[analysis/testing/](./analysis/testing/)** - Testing coverage reports
+- **[analysis/summaries/](./analysis/summaries/)** - High-level summary reports
+
+Each directory contains a README.md index file for easy navigation.
+
 ## Known Limitations & Future Work
 
 > **📋 For a comprehensive list of unimplemented features, TODOs, and work-in-progress items, see [UNIMPLEMENTED.md](./UNIMPLEMENTED.md)**
@@ -463,7 +489,7 @@ pnpm install
 
 ## Testing
 
-> **📋 For comprehensive testing strategy, tooling, and roadmap, see [TESTING_STRATEGY.md](./TESTING_STRATEGY.md)**
+> **📋 For comprehensive testing strategy, tooling, and roadmap, see [docs/guides/testing-strategy.md](./docs/guides/testing-strategy.md)**
 
 ### Quick Start
 

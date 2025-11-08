@@ -1,6 +1,17 @@
 /**
  * Unit tests for Algorithm Initialization Error Handling (Issue #5 fix)
  * Tests the error UI with retry button in RoundsTab component
+ *
+ * FIXED: Added proper icon mocking for lucide-react-native icons.
+ * The component uses RefreshCw icon in the error UI, which needs to be mocked
+ * in tests to avoid "Cannot read properties of undefined" errors.
+ *
+ * Tests verify:
+ * - Error UI renders when algorithmError prop is present
+ * - Retry button functionality (when onRetryAlgorithm callback provided)
+ * - Fallback button (when no retry callback)
+ * - Different error message formats
+ * - Toast notifications on user actions
  */
 
 import React from 'react';
@@ -17,6 +28,36 @@ jest.mock('../../../utils/offlineQueue');
 jest.mock('../../../hooks/useNetworkStatus', () => ({
   useNetworkStatus: () => ({ isOnline: true }),
 }));
+
+// Mock lucide-react-native icons - Required for components that use icons
+jest.mock('lucide-react-native', () => {
+  const mockReact = jest.requireActual('react');
+  const { Text } = jest.requireActual('react-native');
+
+  const createMockIcon = (iconName: string) => {
+    const MockIcon = (props: any) => {
+      return mockReact.createElement(Text, {
+        testID: `icon-${iconName}`,
+        ...props
+      }, iconName);
+    };
+    MockIcon.displayName = iconName;
+    return MockIcon;
+  };
+
+  return {
+    Play: createMockIcon('Play'),
+    ChevronLeft: createMockIcon('ChevronLeft'),
+    ChevronRight: createMockIcon('ChevronRight'),
+    AlertCircle: createMockIcon('AlertCircle'),
+    Check: createMockIcon('Check'),
+    X: createMockIcon('X'),
+    Users: createMockIcon('Users'),
+    CheckCircle2: createMockIcon('CheckCircle2'),
+    Loader2: createMockIcon('Loader2'),
+    RefreshCw: createMockIcon('RefreshCw'),
+  };
+});
 
 // Test data factories
 const createPlayer = (overrides: Partial<Player> = {}): Player => ({

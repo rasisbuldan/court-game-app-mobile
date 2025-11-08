@@ -44,6 +44,36 @@ jest.mock('react-native-toast-message', () => ({
   show: jest.fn(),
 }));
 
+// Mock lucide-react-native icons
+jest.mock('lucide-react-native', () => {
+  const mockReact = jest.requireActual('react');
+  const { Text } = jest.requireActual('react-native');
+
+  const createMockIcon = (iconName: string) => {
+    const MockIcon = (props: any) => {
+      return mockReact.createElement(Text, {
+        testID: `icon-${iconName}`,
+        ...props
+      }, iconName);
+    };
+    MockIcon.displayName = iconName;
+    return MockIcon;
+  };
+
+  return {
+    Play: createMockIcon('Play'),
+    ChevronLeft: createMockIcon('ChevronLeft'),
+    ChevronRight: createMockIcon('ChevronRight'),
+    AlertCircle: createMockIcon('AlertCircle'),
+    Check: createMockIcon('Check'),
+    X: createMockIcon('X'),
+    Users: createMockIcon('Users'),
+    CheckCircle2: createMockIcon('CheckCircle2'),
+    Loader2: createMockIcon('Loader2'),
+    RefreshCw: createMockIcon('RefreshCw'),
+  };
+});
+
 const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: {

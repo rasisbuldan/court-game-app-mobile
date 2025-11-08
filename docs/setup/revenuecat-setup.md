@@ -1,6 +1,11 @@
-# RevenueCat Setup Guide - Courtster Mobile
+# RevenueCat Setup Guide - Courtster Mobile (2025)
 
-Complete guide to set up RevenueCat for in-app purchases (iOS and Android).
+Complete guide to set up RevenueCat for in-app purchases (iOS and Android) - Updated for November 2025 with latest dashboard features and best practices.
+
+> **Last Updated:** November 2025
+> **RevenueCat SDK:** v9.6.1 (react-native-purchases)
+> **Min Requirements:** React Native 0.73.0+, iOS 13.4+, Android API 19+ (Kotlin 1.8.0+)
+> **Dashboard Version:** 2025 (with redesigned navigation)
 
 ---
 
@@ -19,6 +24,7 @@ Complete guide to set up RevenueCat for in-app purchases (iOS and Android).
 11. [Testing](#testing)
 12. [Subscription Tiers](#subscription-tiers)
 13. [Troubleshooting](#troubleshooting)
+14. [What's New in 2025](#whats-new-in-2025)
 
 ---
 
@@ -32,11 +38,15 @@ Complete guide to set up RevenueCat for in-app purchases (iOS and Android).
 
 **What's Already Implemented:**
 - ✅ RevenueCat SDK integrated (`react-native-purchases` v9.6.1)
+  - Supports React Native 0.73.0+ (New Architecture ready)
+  - Android: Min API 19 (Android 4.4), Kotlin 1.8.0+
+  - iOS: Min deployment target 13.4+
 - ✅ Service layer (`services/revenueCat.ts`)
 - ✅ Subscription hook (`hooks/useSubscription.ts`)
 - ✅ Feature access control
 - ✅ Trial period logic
 - ✅ Supabase sync for subscription tiers
+- ✅ Restore purchases functionality
 
 **What You Need to Configure:**
 - RevenueCat Dashboard (products, entitlements, offerings)
@@ -58,6 +68,27 @@ Complete guide to set up RevenueCat for in-app purchases (iOS and Android).
 - Admin access to Google Play Console
 - Supabase project with `profiles` table
 
+### Important: Expo Development Build Required
+
+> **⚠️ Critical:** `react-native-purchases` contains native code and **does NOT work with Expo Go**. You must use a development build.
+
+**For Courtster Mobile:**
+```bash
+# Create development build (required for testing)
+npx expo install expo-dev-client
+eas build --profile development --platform ios
+eas build --profile development --platform android
+
+# Or run locally with development build
+npx expo run:ios
+npx expo run:android
+```
+
+**Why?**
+- Expo Go is a sandbox that only supports Expo SDK packages
+- RevenueCat SDK requires native modules for App Store/Play Store integration
+- Development builds include all native dependencies
+
 ---
 
 ## Step 1: Create RevenueCat Account
@@ -77,15 +108,21 @@ Complete guide to set up RevenueCat for in-app purchases (iOS and Android).
 
 ## Step 2: Configure App in RevenueCat
 
+> **💡 2025 Dashboard Navigation:** The RevenueCat dashboard has a new vertical navigation layout. Look for **"Product catalog"** in the left sidebar to access Products, Offerings, and Entitlements.
+
 ### 2.1 Add iOS App
-1. Go to **"Project Settings"** → **"Apps"**
+1. Go to **"Project Settings"** → **"Apps"** (in left sidebar)
 2. Click **"+ New"** → **"iOS"**
 3. Fill in:
    - **App Name:** `Courtster iOS`
    - **Bundle ID:** `com.courtster.mobile` (from `app.json`)
-   - **Shared Secret:** Leave empty for now (we'll add after creating subscriptions)
+   - **App Store Connect API Key:** (Recommended - more secure than shared secret)
+     - Generate in App Store Connect → Users and Access → Keys
+     - Or use **Shared Secret:** (legacy method - less secure)
 4. Click **"Save"**
 5. **Copy your iOS API Key** (starts with `appl_`)
+
+> **⚠️ Security Best Practice (2025):** Use App Store Connect API Key instead of App-Specific Shared Secret. It's more secure and works across multiple apps.
 
 ### 2.2 Add Android App
 1. Click **"+ New"** → **"Android"**
@@ -106,9 +143,12 @@ EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_xxxxxxxxxxxxxxxxxxxxx
 
 ## Step 3: Set Up Products
 
+> **💡 2025 Update:** Products are now in the **"Product catalog"** section in the left sidebar, not a tab.
+
 ### 3.1 Navigate to Products
-1. In RevenueCat Dashboard: **"Products"** tab
-2. Click **"+ New"**
+1. In RevenueCat Dashboard: Click **"Product catalog"** in left sidebar
+2. Click the **"Products"** tab
+3. Click **"+ New"**
 
 ### 3.2 Create Personal Monthly Product
 1. **Product ID:** `personal_monthly`
@@ -142,35 +182,39 @@ EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_xxxxxxxxxxxxxxxxxxxxx
 
 ## Step 4: Configure Entitlements
 
-Entitlements define what features users get with their subscription.
+Entitlements define what features users get with their subscription. Think of them as feature flags that unlock when a user subscribes.
+
+> **💡 2025 Best Practice:** Use entitlements as feature flags to control access to premium features in your app. This allows you to change which products unlock which features without updating your app.
 
 ### 4.1 Create "Personal" Entitlement
-1. Go to **"Entitlements"** tab
-2. Click **"+ New"**
+1. In **"Product catalog"** (left sidebar), click **"Entitlements"** tab
+2. Click **"+ New entitlement"**
 3. **Identifier:** `personal` (⚠️ must match code in `services/revenueCat.ts`)
 4. **Display Name:** `Personal Features`
-5. **Attached Products:** Select:
+5. Click **"Save"**
+6. Click **"Attach"** button and select products:
    - `personal_monthly`
    - `personal_yearly`
-6. Click **"Save"**
 
 ### 4.2 Create "Club" Entitlement
-1. Click **"+ New"**
+1. Click **"+ New entitlement"**
 2. **Identifier:** `club` (⚠️ must match code)
 3. **Display Name:** `Club Features`
-4. **Attached Products:** Select:
+4. Click **"Save"**
+5. Click **"Attach"** and select products:
    - `club_monthly`
    - `club_yearly`
-5. Click **"Save"**
 
 ---
 
 ## Step 5: Create Offerings
 
-Offerings group products for display in your app.
+Offerings group products for display in your app. They allow you to A/B test different pricing strategies without updating your app.
+
+> **💡 2025 Update:** Offerings are now in the **"Product catalog"** section alongside Products and Entitlements.
 
 ### 5.1 Create Default Offering
-1. Go to **"Offerings"** tab
+1. In **"Product catalog"** (left sidebar), click **"Offerings"** tab
 2. Click **"+ New"**
 3. **Identifier:** `default`
 4. **Display Name:** `Default Offering`
@@ -178,8 +222,8 @@ Offerings group products for display in your app.
 6. Click **"Save"**
 
 ### 5.2 Add Packages to Default Offering
-1. Click on **"default"** offering
-2. Click **"+ Add Package"** for each:
+1. Click on your **"default"** offering
+2. In the **Packages** section, click **"+ Add package"** for each:
 
 **Package 1: Personal Monthly**
 - **Package Type:** `MONTHLY`
@@ -334,21 +378,61 @@ npx expo start --clear
 
 ## Testing
 
+> **⚠️ 2025 Reminder:** Always test on **real devices**, not simulators/emulators. In-app purchases don't work properly on simulators.
+
 ### Test in Development
 
 #### iOS Sandbox Testing
-1. Create sandbox test account in App Store Connect
-2. Sign out of production App Store on device
-3. Run app on device (NOT simulator for purchases)
-4. Trigger purchase flow
-5. Sign in with sandbox account when prompted
-6. Complete purchase
+
+**Setup (One-time):**
+1. **App Store Connect** → **Users and Access** → **Sandbox Testers**
+2. Click **"+"** to create tester
+3. Use unique email (e.g., `test-ios@courtster.com`)
+4. Choose region (affects pricing display)
+5. **Important:** Remember password - you'll need it on device
+
+**Testing Flow:**
+1. **Sign out** of production App Store on device:
+   - Settings → App Store → Tap Apple ID → Sign Out
+2. **Build and install** app with development build:
+   ```bash
+   npx expo run:ios --device
+   ```
+3. **Trigger purchase** flow in app
+4. iOS will prompt: **"Sign in with Apple ID"**
+5. Enter **sandbox tester email** and password
+6. Complete purchase (will show **[Sandbox]** banner)
+7. Verify entitlements unlock in app
+
+**Tips:**
+- Sandbox purchases are instant (no waiting)
+- Can test subscription renewals (accelerated time)
+- Monthly subscriptions renew every 5 minutes in sandbox
+- Maximum 6 renewals before auto-cancel
 
 #### Android Test Accounts
-1. Add test accounts in Google Play Console
-2. Install app via internal testing track
-3. Test purchase flow
-4. Purchases are free for test accounts
+
+**Setup (One-time):**
+1. **Google Play Console** → **Setup** → **License Testing**
+2. Add Gmail accounts (e.g., `testuser@gmail.com`)
+3. **OR** use internal testing track with invited testers
+
+**Testing Flow:**
+1. **Build** app for internal testing:
+   ```bash
+   eas build --profile preview --platform android
+   ```
+2. **Upload to Play Console** internal testing track
+3. **Install** from Play Store (must be from store, not local build)
+4. **Trigger purchase** flow in app
+5. Google Play shows **"Test purchase"** label
+6. Complete purchase (no charge for test accounts)
+7. Verify entitlements unlock
+
+**Tips:**
+- Test purchases behave like real purchases
+- Can cancel subscriptions from Play Store
+- Use Play Console to view test transactions
 
 ### Test Purchase Flow
 
@@ -477,3 +561,149 @@ function SubscriptionScreen() {
 ---
 
 **Need Help?** Check the troubleshooting section or contact RevenueCat support at https://community.revenuecat.com/
+
+---
+
+## What's New in 2025
+
+### 🎨 Dashboard Redesign
+- **New vertical navigation** - Cleaner layout with sidebar navigation
+- **Product Catalog consolidation** - Products, Offerings, Entitlements, and Virtual Currencies all in one place
+- **Projects as top-level view** - Easier to manage multiple apps
+
+### 🤖 RevenueCat MCP Server (Beta)
+Configure your entire subscription setup using AI assistants with natural language:
+
+```
+"Create a premium monthly subscription for my iOS app"
+"Set up an entitlement called 'premium_features' and attach my monthly product"
+"Show me all active subscriptions for user@example.com"
+```
+
+The MCP server allows you to manage RevenueCat without navigating the dashboard. Perfect for quick setup and testing.
+
+> **Try it:** https://www.revenuecat.com/docs/mcp
+
+### 🔐 Enhanced Security
+- **App Store Connect API Keys** now recommended over App-Specific Shared Secrets
+- More secure and works across multiple apps
+- Easier to rotate and manage
+
+### 📱 SDK Updates (react-native-purchases v9.6.1)
+- **React Native New Architecture** support (Fabric + TurboModules)
+- **React Native 0.73.0+** minimum requirement
+- **In-App Messages support** for both iOS and Android
+  - Google Play In-App Messages
+  - App Store In-App Messages
+  - Shown by default on both platforms
+- **Android BillingClient 5** integration
+  - New subscription model with base plans and offers
+  - Better handling of subscription upgrades/downgrades
+
+### 🔔 Platform Server Notifications
+Set up Platform Server Notifications for faster webhook delivery:
+- iOS: App Store Server Notifications V2
+- Android: Google Cloud Pub/Sub Real-time Developer Notifications
+
+Faster notification delivery = faster entitlement updates = better UX.
+
+### 🎯 Entitlements as Feature Flags
+New best practice: Use entitlements to control feature access instead of checking subscription status directly.
+
+```typescript
+// ✅ Good (2025 best practice)
+const { hasEntitlement } = useSubscription();
+if (hasEntitlement('personal')) {
+  // Show premium feature
+}
+
+// ❌ Old way (less flexible)
+const { tier } = useSubscription();
+if (tier === 'personal' || tier === 'club') {
+  // Show premium feature
+}
+```
+
+Benefits:
+- Change which products unlock features without app updates
+- A/B test different entitlement combinations
+- Gradually roll out features to subscribers
+
+### 📊 Improved Analytics
+- Better charts and visualizations in dashboard
+- More granular cohort analysis
+- Improved churn prediction
+
+---
+
+## Migration Notes
+
+### From v8 to v9 (react-native-purchases)
+No breaking changes for most users. Key updates:
+- Improved TypeScript types
+- Better error messages
+- Performance optimizations
+
+### From v7 to v8
+See full migration guide: https://github.com/RevenueCat/react-native-purchases/blob/main/migrations/v8-MIGRATION.md
+
+### From v6 to v7
+- Minimum Android SDK bumped from API 16 to API 19
+- In-App Messages added (enabled by default)
+- Improved subscription lifecycle handling
+
+---
+
+## 2025 Best Practices Checklist
+
+- [ ] Use **App Store Connect API Keys** instead of Shared Secrets (iOS)
+- [ ] Enable **Platform Server Notifications** for faster webhook delivery
+- [ ] Use **entitlements as feature flags** instead of checking tiers directly
+- [ ] Implement **restore purchases** functionality (required by stores)
+- [ ] Set up **proper error handling** with fallbacks for network issues
+- [ ] Never submit apps with **Test Store API keys** - use production keys
+- [ ] Use **development builds** for Expo (Expo Go doesn't support native code)
+- [ ] Test on **real devices** (not simulators) for purchase testing
+- [ ] Configure SDK **only once** at app startup (use context provider)
+- [ ] Monitor **dashboard analytics** regularly for subscription health
+
+---
+
+## Important Notes for November 2025
+
+### ⚠️ Consumable Products Configuration
+**New in v9.0.0+:** One-time purchase products MUST be correctly configured in the RevenueCat dashboard as either **consumable** or **non-consumable**.
+
+- Incorrectly configured consumables will be consumed by RevenueCat
+- This prevents restoration from v9.0.0 onward
+- Double-check your product types in the dashboard before going live
+
+### 🆕 Recent SDK Updates
+- **v9.5.1+** includes latest purchases-hybrid-common updates
+- Improved Expo Go support and web targets
+- Enhanced error handling and reliability
+
+### 📱 Expo Compatibility
+- **Expo SDK 54** fully supported (current in Courtster Mobile)
+- Development builds required (Expo Go does NOT support native modules)
+- Use `expo-dev-client` for testing
+
+### 🍎 iOS 18 & 🤖 Android 15 Support
+**Courtster Mobile is optimized for the latest OS versions:**
+
+**iOS 18:**
+- Full compatibility with StoreKit 2
+- Support for new subscription features
+- Works with Live Activities (future feature)
+- Deployment target: iOS 15.0+ (backward compatible)
+
+**Android 15:**
+- Target SDK: 35 (Android 15)
+- Google Play Billing Library 6+ ready
+- Edge-to-edge display support
+- Predictive back gesture compatible
+- Min SDK: 26 (Android 8.0)
+
+---
+
+**Last Updated:** November 2025 | **Next Review:** May 2026

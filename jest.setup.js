@@ -71,7 +71,11 @@ jest.mock('expo-blur', () => ({
 }));
 
 jest.mock('lucide-react-native', () => {
-  const mockIconFactory = () => jest.fn(() => null);
+  const mockIconFactory = () => {
+    const MockIcon = jest.fn(() => null);
+    MockIcon.displayName = 'MockIcon';
+    return MockIcon;
+  };
   return {
     Mail: mockIconFactory(),
     Lock: mockIconFactory(),
@@ -83,6 +87,25 @@ jest.mock('lucide-react-native', () => {
     MoreVertical: mockIconFactory(),
     Eye: mockIconFactory(),
     EyeOff: mockIconFactory(),
+    ChevronRight: mockIconFactory(),
+    CreditCard: mockIconFactory(),
+    LogOut: mockIconFactory(),
+    Bell: mockIconFactory(),
+    Shield: mockIconFactory(),
+    HelpCircle: mockIconFactory(),
+    Globe: mockIconFactory(),
+    Moon: mockIconFactory(),
+    Volume2: mockIconFactory(),
+    Smartphone: mockIconFactory(),
+    Languages: mockIconFactory(),
+    FileText: mockIconFactory(),
+    MessageSquare: mockIconFactory(),
+    Calendar: mockIconFactory(),
+    Palette: mockIconFactory(),
+    Code: mockIconFactory(),
+    RefreshCw: mockIconFactory(),
+    Settings: mockIconFactory(),
+    UserCog: mockIconFactory(),
   };
 });
 

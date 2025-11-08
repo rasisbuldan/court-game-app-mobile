@@ -21,6 +21,7 @@ import type { SubscriptionTier } from '../hooks/useSubscription';
 
 const REVENUECAT_IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY || '';
 const REVENUECAT_ANDROID_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY || '';
+const REVENUECAT_ENABLED = process.env.EXPO_PUBLIC_REVENUECAT_ENABLED !== 'false';
 
 // Entitlement identifiers (configured in RevenueCat dashboard)
 export const ENTITLEMENTS = {
@@ -48,6 +49,15 @@ let isInitialized = false;
  * Call this once when the app starts (after user is authenticated)
  */
 export async function initializeRevenueCat(userId: string): Promise<void> {
+  // Skip initialization if disabled via env var (beta builds)
+  if (!REVENUECAT_ENABLED) {
+    Logger.info('RevenueCat disabled via EXPO_PUBLIC_REVENUECAT_ENABLED=false', {
+      action: 'revenuecat_disabled',
+      metadata: { userId },
+    });
+    return;
+  }
+
   if (isInitialized) {
     Logger.debug('RevenueCat already initialized', { userId });
     return;
@@ -101,6 +111,11 @@ export function isRevenueCatInitialized(): boolean {
  * Get current customer info (active subscriptions, entitlements)
  */
 export async function getCustomerInfo(): Promise<CustomerInfo> {
+  // Throw error if disabled (caller should check isInitialized first)
+  if (!REVENUECAT_ENABLED || !isInitialized) {
+    throw new Error('RevenueCat is not initialized. Set EXPO_PUBLIC_REVENUECAT_ENABLED=true and provide API keys.');
+  }
+
   try {
     const customerInfo = await Purchases.getCustomerInfo();
 
@@ -152,6 +167,15 @@ export function hasActiveSubscription(customerInfo: CustomerInfo): boolean {
  * Get available offerings (subscription plans)
  */
 export async function getOfferings(): Promise<PurchasesOffering[]> {
+  // Return empty array if disabled
+  if (!REVENUECAT_ENABLED || !isInitialized) {
+    Logger.debug('RevenueCat: getOfferings called but SDK not initialized', {
+      enabled: REVENUECAT_ENABLED,
+      initialized: isInitialized,
+    });
+    return [];
+  }
+
   try {
     const offerings = await Purchases.getOfferings();
 
@@ -221,6 +245,10 @@ export async function getPackage(packageIdentifier: string): Promise<PurchasesPa
 export async function purchasePackage(
   pkg: PurchasesPackage
 ): Promise<{ customerInfo: CustomerInfo; userCancelled: boolean }> {
+  if (!REVENUECAT_ENABLED || !isInitialized) {
+    throw new Error('RevenueCat is not initialized. Purchases are disabled in beta.');
+  }
+
   try {
     Logger.info('RevenueCat: Starting purchase', {
       action: 'purchase_start',
@@ -270,6 +298,10 @@ export async function purchasePackage(
  * Restore purchases (for users who reinstalled or switched devices)
  */
 export async function restorePurchases(): Promise<CustomerInfo> {
+  if (!REVENUECAT_ENABLED || !isInitialized) {
+    throw new Error('RevenueCat is not initialized. Restore is disabled in beta.');
+  }
+
   try {
     Logger.info('RevenueCat: Restoring purchases', {
       action: 'restore_purchases_start',

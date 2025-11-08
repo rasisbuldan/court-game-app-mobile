@@ -1,0 +1,57 @@
+{
+  "cli": {
+    "version": ">= 14.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "base": {
+      "node": "22.11.0",
+      "yarn": "1.22.22"
+    },
+    "development": {
+      "extends": "base",
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "preview": {
+      "extends": "base",
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
+      }
+    },
+    "production": {
+      "extends": "base",
+      "distribution": "store",
+      "autoIncrement": true,
+      "channel": "production",
+      "prebuildCommand": "cd ../.. && yarn install --frozen-lockfile",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://bmnpkthulhgrqzykhqsa.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtbnBrdGh1bGhncnF6eWtocXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNDk4NDAsImV4cCI6MjA3MjkyNTg0MH0.SiM6dpe5TV7cS4tzdMtrc5C-l_vV3vThejROcuhn-1Q",
+        "EXPO_PUBLIC_AUTH_REDIRECT_URL": "courtster://auth/callback",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://104092c8b88137c72345222ca37d96a9@o4510300956131328.ingest.us.sentry.io/4510301015179264",
+        "EXPO_PUBLIC_LOKI_PUSH_URL": "https://logs-prod-032.grafana.net/loki/api/v1/push",
+        "EXPO_PUBLIC_LOKI_SERVICE_ACCOUNT_TOKEN": "glc_eyJvIjoiMTU3ODQwOSIsIm4iOiJtb2JpbGUtYXBwLWxva2ktbG9ncy1tb2JpbGUtYXBwLXRva2VuIiwiayI6ImNDcmc4MDNnTTgyQWRZM3F2MzVyOW4wUiIsIm0iOnsiciI6InByb2QtYXAtc291dGhlYXN0LTIifX0=",
+        "EXPO_PUBLIC_LOKI_TENANT_ID": "1383310",
+        "EXPO_PUBLIC_ENABLE_SENTRY": "true",
+        "EXPO_PUBLIC_ENABLE_LOKI": "true",
+        "EXPO_PUBLIC_ENABLE_POSTHOG": "true",
+        "EXPO_PUBLIC_POSTHOG_API_KEY": "phc_oafb1AxyrcinWbrKumZgMBloIUa4EbBw24e7zoROjbJ",
+        "EXPO_PUBLIC_REVENUECAT_ENABLED": "false"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "YOUR_APPLE_ID@example.com",
+        "ascAppId": "YOUR_APP_STORE_CONNECT_APP_ID",
+        "appleTeamId": "YOUR_TEAM_ID"
+      }
+    }
+  }
+}

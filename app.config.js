@@ -2,13 +2,16 @@ module.exports = {
   expo: {
     name: "Courtster",
     slug: "courtster",
-    version: "1.0.0",
+    version: "0.1.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "automatic",
     scheme: "courtster",
     newArchEnabled: true,
     platforms: ["ios", "android"],
+    updates: {
+      url: "https://u.expo.dev/acb8be5d-da30-4ae1-ac25-57a6543452cf"
+    },
     splash: {
       image: "./assets/splash-icon.png",
       resizeMode: "contain",
@@ -17,7 +20,8 @@ module.exports = {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.courtster.app",
-      buildNumber: "1.0.0",
+      buildNumber: "1",
+      runtimeVersion: "0.1.0",
       infoPlist: {
         NSCameraUsageDescription: "Allow Courtster to access your camera to take photos for tournaments.",
         NSPhotoLibraryUsageDescription: "Allow Courtster to access your photo library.",
@@ -36,6 +40,9 @@ module.exports = {
       },
       package: "com.courtster.app",
       versionCode: 1,
+      runtimeVersion: {
+        policy: "appVersion"
+      },
       // Optimized for Samsung S24 (Android 15)
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: true,

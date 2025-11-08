@@ -1833,6 +1833,56 @@ export const RoundsTab = memo(function RoundsTab({
             </View>
           </View>
         )}
+
+        {/* Beta Test Fairness Indicator - Show fairness status for monitoring */}
+        {algorithm && !isParallelMode && (
+          <View style={{
+            backgroundColor: '#F9FAFB',
+            borderRadius: 16,
+            padding: 16,
+            marginBottom: 16,
+            borderWidth: 1,
+            borderColor: '#E5E7EB',
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Inter', fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 4 }}>
+                  Tournament Fairness
+                </Text>
+                {(() => {
+                  const fairness = algorithm.getFairnessReport();
+                  const stats = algorithm.getAllPlayersStats();
+                  const playCounts = stats.map(p => p.playCount);
+                  const maxPlayed = Math.max(...playCounts);
+                  const minPlayed = Math.min(...playCounts);
+
+                  return (
+                    <>
+                      <Text style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: '500', color: '#6B7280', marginBottom: 8 }}>
+                        Games played: {minPlayed === maxPlayed ? maxPlayed : `${minPlayed}-${maxPlayed}`} per player
+                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{
+                          backgroundColor: fairness.isFair ? '#10B981' : '#EF4444',
+                          borderRadius: 12,
+                          paddingHorizontal: 12,
+                          paddingVertical: 4,
+                        }}>
+                          <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '700', color: '#FFFFFF' }}>
+                            {fairness.isFair ? '✓ FAIR' : '✗ UNFAIR'}
+                          </Text>
+                        </View>
+                        <Text style={{ fontFamily: 'Inter', fontSize: 11, fontWeight: '500', color: '#6B7280' }}>
+                          Max difference: {fairness.maxDifference} game{fairness.maxDifference !== 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                    </>
+                  );
+                })()}
+              </View>
+            </View>
+          </View>
+        )}
       </ScrollView>
         </View>
       </TouchableWithoutFeedback>

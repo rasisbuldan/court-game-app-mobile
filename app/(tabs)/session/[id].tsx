@@ -638,7 +638,33 @@ export default function SessionScreen() {
 
       // Generate new round with same round number
       const newRound = algorithm.generateRound(currentRound.number);
-      const description = `Round ${currentRound.number} regenerated`;
+
+      // Get fairness report for beta monitoring
+      const fairnessReport = algorithm.getFairnessReport();
+      const playerStats = algorithm.getAllPlayersStats();
+
+      // Build detailed description for TestFlight monitoring
+      const sittingPlayerNames = newRound.sittingPlayers.map(p => p.name).join(', ');
+      const description = `Round ${currentRound.number} regenerated - Sitting: ${sittingPlayerNames || 'None'} - Fairness: ${fairnessReport.isFair ? 'Fair' : 'Unfair'} (max diff: ${fairnessReport.maxDifference})`;
+
+      // Build detailed metadata for event history
+      const eventMetadata = {
+        roundNumber: currentRound.number,
+        sittingPlayers: newRound.sittingPlayers.map(p => ({ id: p.id, name: p.name })),
+        playingCount: newRound.matches.flatMap(m => [...m.team1, ...m.team2]).length,
+        fairness: {
+          isFair: fairnessReport.isFair,
+          maxDifference: fairnessReport.maxDifference,
+          min: fairnessReport.min,
+          max: fairnessReport.max,
+        },
+        playerDistribution: playerStats.map(p => ({
+          name: p.name,
+          played: p.playCount,
+          sat: p.sitCount,
+          consecutiveSits: p.consecutiveSits,
+        })),
+      };
 
       // Update the round in the rounds array
       const updatedRounds = [...allRounds];
@@ -653,11 +679,12 @@ export default function SessionScreen() {
 
         if (error) throw error;
 
-        // Log event
+        // Log event with detailed beta monitoring data
         await supabase.from('event_history').insert({
           session_id: id,
           event_type: 'round_generated',
           description,
+          metadata: eventMetadata,
         });
       } else {
         // Queue for offline sync
@@ -665,6 +692,7 @@ export default function SessionScreen() {
           sessionId: id,
           updatedRounds,
           description,
+          metadata: eventMetadata,
         });
       }
 

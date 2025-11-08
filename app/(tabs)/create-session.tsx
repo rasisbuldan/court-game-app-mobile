@@ -551,6 +551,33 @@ export default function CreateSessionScreen() {
           // Generate first round
           const firstRound = algorithm.generateRound(1);
 
+          // Get fairness report for beta monitoring
+          const fairnessReport = algorithm.getFairnessReport();
+          const playerStats = algorithm.getAllPlayersStats();
+
+          // Build detailed description for TestFlight monitoring
+          const sittingPlayerNames = firstRound.sittingPlayers.map(p => p.name).join(', ');
+          const description = `Round 1 generated automatically - Sitting: ${sittingPlayerNames || 'None'} - Fairness: ${fairnessReport.isFair ? 'Fair' : 'Unfair'} (max diff: ${fairnessReport.maxDifference})`;
+
+          // Build detailed metadata for event history
+          const eventMetadata = {
+            roundNumber: 1,
+            sittingPlayers: firstRound.sittingPlayers.map(p => ({ id: p.id, name: p.name })),
+            playingCount: firstRound.matches.flatMap(m => [...m.team1, ...m.team2]).length,
+            fairness: {
+              isFair: fairnessReport.isFair,
+              maxDifference: fairnessReport.maxDifference,
+              min: fairnessReport.min,
+              max: fairnessReport.max,
+            },
+            playerDistribution: playerStats.map(p => ({
+              name: p.name,
+              played: p.playCount,
+              sat: p.sitCount,
+              consecutiveSits: p.consecutiveSits,
+            })),
+          };
+
           // Update session with first round
           // NOTE: Pass JavaScript array directly - Supabase converts to JSONB automatically
           const { error: roundError } = await supabase
@@ -565,11 +592,12 @@ export default function CreateSessionScreen() {
             Logger.error('Failed to generate first round', roundError, { action: 'generateFirstRound', sessionId: sessionData.id });
             // Don't throw - session is created, user can generate round manually
           } else {
-            // Log event for first round generation
+            // Log event with detailed beta monitoring data
             await supabase.from('event_history').insert({
               session_id: sessionData.id,
               event_type: 'round_generated',
-              description: 'Round 1 generated automatically',
+              description,
+              metadata: eventMetadata,
             });
           }
         } catch (algorithmError) {
