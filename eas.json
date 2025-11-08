@@ -6,7 +6,10 @@
   "build": {
     "base": {
       "node": "22.11.0",
-      "yarn": "1.22.22"
+      "yarn": "1.22.22",
+      "env": {
+        "EXPO_USE_FAST_RESOLVER": "true"
+      }
     },
     "development": {
       "extends": "base",
