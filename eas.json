@@ -28,7 +28,7 @@
       "distribution": "store",
       "autoIncrement": true,
       "channel": "production",
-      "prebuildCommand": "cd ../.. && yarn install --frozen-lockfile",
+      "prebuildCommand": "yarn install --frozen-lockfile",
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://bmnpkthulhgrqzykhqsa.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJtbnBrdGh1bGhncnF6eWtocXNhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNDk4NDAsImV4cCI6MjA3MjkyNTg0MH0.SiM6dpe5TV7cS4tzdMtrc5C-l_vV3vThejROcuhn-1Q",
